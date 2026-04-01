@@ -47,8 +47,7 @@ LAG_MONTHS      = 4
 MIN_PRICE       = 3
 N_QUANTILES     = 10
 STALENESS_DAYS  = 365
-N_UNIVERSE      = 500    # S&P 500 proxy size (long book universe)
-N_SHORT_UNIVERSE = 1000  # expanded universe for short book (adds mid-caps ranks 501-1000)
+N_UNIVERSE      = 500    # S&P 500 proxy size
 N_LONG          = 100    # stocks in long book
 N_SHORT         = 100    # stocks in short book
 SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
@@ -512,62 +511,37 @@ def merge_and_form_portfolios(crsp, signal):
     merged["univ_rank"] = merged.groupby("month")["lag_mktcap"].rank(
         ascending=False, method="first"
     )
-    # Long universe: top N_UNIVERSE (S&P 500 proxy)
-    # Short universe: expanded to N_SHORT_UNIVERSE to include mid-caps
-    long_univ  = merged[merged["univ_rank"] <= N_UNIVERSE].copy()
-    short_univ = merged[merged["univ_rank"] <= N_SHORT_UNIVERSE].copy()
-
-    long_univ["sector"] = long_univ["sich"].map(_SIC_MAP).fillna("Industrials")
-    long_univ["sec_mktcap"] = long_univ.groupby(["month", "sector"])["lag_mktcap"].transform("sum")
-    long_univ["tot_mktcap"] = long_univ.groupby("month")["lag_mktcap"].transform("sum")
-    long_univ["sp500_sec_wt"] = long_univ["sec_mktcap"] / long_univ["tot_mktcap"]
-
-    short_univ["sector"] = short_univ["sich"].map(_SIC_MAP).fillna("Industrials")
+    sp500 = merged[merged["univ_rank"] <= N_UNIVERSE].copy()
+    sp500["sector"] = sp500["sich"].map(_SIC_MAP).fillna("Industrials")
+    sp500["sec_mktcap"] = sp500.groupby(["month", "sector"])["lag_mktcap"].transform("sum")
+    sp500["tot_mktcap"] = sp500.groupby("month")["lag_mktcap"].transform("sum")
+    sp500["sp500_sec_wt"] = sp500["sec_mktcap"] / sp500["tot_mktcap"]
 
     monthly_frames = []
     current_long = set()
     current_short = set()
 
-    long_months  = {m: df for m, df in long_univ.groupby("month")}
-    short_months = {m: df for m, df in short_univ.groupby("month")}
-    all_months   = sorted(set(long_months) | set(short_months))
-
-    for idx, month in enumerate(all_months):
-        long_df  = long_months.get(month)
-        short_df = short_months.get(month)
-        if long_df is None or short_df is None:
-            continue
-        long_df  = long_df.copy()
-        short_df = short_df.copy()
-
+    for idx, (month, month_df) in enumerate(sp500.groupby("month")):
+        month_df = month_df.copy()
         rebalance = (idx % REBALANCE_MONTHS == 0) or not current_long or not current_short
         if rebalance:
-            long_ids = _sector_neutral_select(long_df, N_LONG, ascending=False)
-            # Short candidates: mid-cap universe (ranks 501-1000), excluding long picks
-            short_candidates = short_df[
-                (~short_df["PERMNO"].isin(long_ids)) &
-                (short_df["univ_rank"] > N_UNIVERSE)
-            ].copy()
-            short_candidates = short_candidates.dropna(subset=[SHORT_SIGNAL_COL])
-            short_ids = _sector_neutral_select(short_candidates, N_SHORT, ascending=False,
+            long_ids = _sector_neutral_select(month_df, N_LONG, ascending=False)
+            short_universe = month_df[~month_df["PERMNO"].isin(long_ids)].copy()
+            short_universe = short_universe.dropna(subset=[SHORT_SIGNAL_COL])
+            short_ids = _sector_neutral_select(short_universe, N_SHORT, ascending=False,
                                                signal_col=SHORT_SIGNAL_COL)
             current_long = long_ids
             current_short = short_ids
 
-        # Assign ports: longs from large-cap df, shorts from mid-cap df
-        long_df["port"] = "mid"
-        long_df.loc[long_df["PERMNO"].isin(current_long), "port"] = "long"
-
-        short_frame = short_df[short_df["PERMNO"].isin(current_short)].copy()
-        short_frame["port"] = "short"
-
-        monthly_frames.append(pd.concat([
-            long_df[long_df["port"] == "long"],
-            short_frame,
-        ], ignore_index=True))
+        month_df["port"] = "mid"
+        if current_long:
+            month_df.loc[month_df["PERMNO"].isin(current_long), "port"] = "long"
+        if current_short:
+            month_df.loc[month_df["PERMNO"].isin(current_short), "port"] = "short"
+        monthly_frames.append(month_df[month_df["port"].isin(["long", "short"])])
 
     if not monthly_frames:
-        return pd.DataFrame(columns=long_univ.columns)
+        return pd.DataFrame(columns=sp500.columns)
 
     result = pd.concat(monthly_frames, axis=0)
     print(f"  {len(result):,} obs | "
@@ -694,8 +668,7 @@ def output_results(results, metrics):
               f"Signal: {SIGNAL_COL}   |   Lag: datadate + {LAG_MONTHS} months\n"
               f"Universe: top-{N_UNIVERSE} by mktcap (S&P 500 proxy), SHRCD 10/11, "
               f"lagged |PRC| > ${MIN_PRICE}   |   Rebalancing: quarterly\n"
-              f"130% long top-{N_LONG} from top-{N_UNIVERSE} (Yield+GP+ROIC) / "
-              f"30% short top-{N_SHORT} from ranks {N_UNIVERSE+1}-{N_SHORT_UNIVERSE} mid-caps (NEF+Leverage+F-Score+GP), "
+              f"130% long top-{N_LONG} (Yield+GP+ROIC) / 30% short top-{N_SHORT} (NEF+Leverage+F-Score+GP), "
               f"equal-weight, +/-{SECTOR_TOL:.0%} sector neutrality\n{sep}")
 
     print(header)
