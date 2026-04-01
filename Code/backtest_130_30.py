@@ -332,9 +332,14 @@ def build_signal(comp, include_components=False):
     # f_score_z negated: low F-score = deteriorating fundamentals = bad
     # leverage_z: high = more leveraged = financially fragile = bad
     # gross_prof_z negated: low GP = structurally poor business = bad
-    comp[SHORT_SIGNAL_COL] = (
-        comp["nef_z"] - comp["f_score_z"] + comp["leverage_z"] - comp["gross_prof_z"]
-    ) / 4.0
+    # Use row-wise mean (skipna=True) so one missing factor doesn't nullify the composite
+    _short_z = pd.DataFrame({
+        "nef_z":          comp["nef_z"],
+        "f_score_z_neg":  -comp["f_score_z"],
+        "leverage_z":     comp["leverage_z"],
+        "gross_prof_z_neg": -comp["gross_prof_z"],
+    })
+    comp[SHORT_SIGNAL_COL] = _short_z.mean(axis=1)
 
     comp["eps_ttm"] = comp["nopat_ttm"] / comp["cshoq"].replace(0, np.nan)
     comp["pe_ratio"] = np.where(
