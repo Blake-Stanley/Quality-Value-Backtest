@@ -1,5 +1,15 @@
 # 130/30 Long-Short Equity Backtest
 
+## GitHub
+Repo: https://github.com/Blake-Stanley/Quality-Value-Backtest
+
+After any significant code changes, remind Blake to commit and push:
+```bash
+git add .
+git commit -m "describe what changed"
+git push
+```
+
 ## Strategy Overview
 A 130/30 long-short equity strategy backtested against an S&P 500 proxy universe.
 The fund takes 130% long exposure in high-ranked stocks and 30% short exposure in
