@@ -1,0 +1,23 @@
+"""
+Run the full 130/30 pipeline: backtest, make table, then holdings snapshot.
+
+Usage:
+    python run_all.py              # normal run (holdings loads from cache)
+    python run_all.py --refresh    # force rebuild of source data
+"""
+
+import sys
+import time
+
+import backtest_130_30 as bt
+import export_holdings as eh
+import make_table as mt
+
+if __name__ == "__main__":
+    t0 = time.time()
+    bt.main()
+    print()
+    mt.main()
+    print()
+    eh.main()
+    print(f"\nAll done in {time.time() - t0:.1f}s")
