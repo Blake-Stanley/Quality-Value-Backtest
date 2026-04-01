@@ -16,7 +16,6 @@ computed cross-sectionally each quarter and lagged 4 months to avoid look-ahead 
 ## How to Run
 
 ```bash
-cd Code
 python run_all.py            # full pipeline
 python run_all.py --refresh  # force reload from source data
 ```
@@ -24,8 +23,10 @@ python run_all.py --refresh  # force reload from source data
 ## Structure
 
 ```
-Code/       Python scripts
+run_all.py  Entry point — runs full pipeline from repo root
+Code/       Python scripts (backtest engine, holdings export, table formatter)
 Data/       Source data (Compustat, CRSP, Fama-French) — not tracked in git
+Cache/      Intermediate parquet files — auto-generated, safe to delete
 Output/     Generated charts, CSVs, Excel files
 ```
 

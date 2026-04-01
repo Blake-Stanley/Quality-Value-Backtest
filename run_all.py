@@ -1,13 +1,16 @@
 """
 Run the full 130/30 pipeline: backtest, make table, then holdings snapshot.
 
-Usage:
+Usage (from repo root):
     python run_all.py              # normal run (holdings loads from cache)
     python run_all.py --refresh    # force rebuild of source data
 """
 
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "Code"))
 
 import backtest_130_30 as bt
 import export_holdings as eh
