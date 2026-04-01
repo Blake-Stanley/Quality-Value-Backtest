@@ -254,7 +254,7 @@ def main():
     long_mask  = snapshot["Book"] == "Long"
     short_mask = snapshot["Book"] == "Short"
     snapshot.loc[long_mask,  "Rank"] = snapshot.loc[long_mask,  bt.SIGNAL_COL].rank(ascending=False, method="first")
-    snapshot.loc[short_mask, "Rank"] = snapshot.loc[short_mask, bt.SIGNAL_COL].rank(ascending=True,  method="first")
+    snapshot.loc[short_mask, "Rank"] = snapshot.loc[short_mask, bt.SHORT_SIGNAL_COL].rank(ascending=False, method="first")
     snapshot["Rank"] = snapshot["Rank"].astype(int)
 
     components = _latest_component_snapshot(signal_raw)
@@ -288,8 +288,9 @@ def main():
     title_long  = f"130/30 Long-Short Equity — Long Book  ({rebal_str})"
     title_short = f"130/30 Long-Short Equity — Short Book  ({rebal_str})"
     subtitle = (
-        "Composite z-score: Shareholder Yield + Gross Profitability + ROIC  |  "
-        "130% long top-100 / 30% short bottom-100 (S&P 500 proxy)  |  "
+        "Long signal: Shareholder Yield + Gross Profitability + ROIC  |  "
+        "Short signal: Net Ext. Financing + Leverage + F-Score + Gross Profitability  |  "
+        "130% long top-100 / 30% short top-100 (S&P 500 proxy)  |  "
         "Quarterly rebalancing, ±5 pp sector neutrality"
     )
 

@@ -1,16 +1,21 @@
 """
 Backtest: 130/30 Long-Short Equity ETF
 ========================================
-Signal  : Equal-weight composite z-score of:
-            1. Shareholder Yield  = (TTM dividends + TTM net buybacks) / market cap
-            2. Gross Profitability = TTM (revenue - COGS) / total assets
-            3. ROIC               = TTM NOPAT / avg invested capital
-Universe: S&P 500 proxy (top 500 by mktcap each month), SHRCD 10/11, lagged price > $3
-Long    : top 100 by composite score  (130% gross weight, equal-weighted)
-Short   : bottom 100 by composite score (30% gross weight, equal-weighted)
-Sector  : +/-5pp sector neutrality vs S&P 500 proxy weights
-Rebal   : Quarterly
-Return  : R = 1.30 * R_long - 0.30 * R_short
+Long signal  : Equal-weight composite z-score of:
+                 1. Shareholder Yield  = (TTM dividends + TTM net buybacks) / market cap
+                 2. Gross Profitability = TTM (revenue - COGS) / total assets
+                 3. ROIC               = TTM NOPAT / avg invested capital
+Short signal : Separate equal-weight composite z-score (high = bad company = short candidate):
+                 1. Net External Financing = TTM (stock issuance - buybacks + debt issuance - repayments) / assets
+                 2. Piotroski F-Score (negated) = 9-criteria fundamental quality score (0-9)
+                 3. Leverage = (LT debt + ST debt) / total assets
+                 4. Gross Profitability (negated) = TTM (revenue - COGS) / total assets
+Universe     : S&P 500 proxy (top 500 by mktcap each month), SHRCD 10/11, lagged price > $3
+Long         : top 100 by long composite score  (130% gross weight, equal-weighted)
+Short        : top 100 by short composite score (30% gross weight, equal-weighted)
+Sector       : +/-5pp sector neutrality vs S&P 500 proxy weights
+Rebal        : Quarterly
+Return       : R = 1.30 * R_long - 0.30 * R_short
 """
 
 import pandas as pd
@@ -30,7 +35,8 @@ warnings.filterwarnings("ignore")
 # CONFIG
 # =====================================================================
 STRATEGY_NAME   = "130/30 Long-Short Equity ETF"
-SIGNAL_COL      = "composite_z"
+SIGNAL_COL       = "composite_z"
+SHORT_SIGNAL_COL = "short_composite_z"
 DATA_DIR        = Path(__file__).resolve().parent.parent / "Data"
 OUT_DIR         = Path(__file__).resolve().parent.parent / "Output"
 CACHE_DIR       = Path(__file__).resolve().parent.parent / "Cache"
@@ -41,7 +47,8 @@ LAG_MONTHS      = 4
 MIN_PRICE       = 3
 N_QUANTILES     = 10
 STALENESS_DAYS  = 365
-N_UNIVERSE      = 500    # S&P 500 proxy size
+N_UNIVERSE      = 500    # S&P 500 proxy size (long book universe)
+N_SHORT_UNIVERSE = 1000  # expanded universe for short book (adds mid-caps ranks 501-1000)
 N_LONG          = 100    # stocks in long book
 N_SHORT         = 100    # stocks in short book
 SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
@@ -126,23 +133,23 @@ def sic_to_sector(sic):
 # LOAD DATA
 # =====================================================================
 def load_data():
-    comp = pd.read_parquet(
-        DATA_DIR / COMP_FILE,
-        engine="pyarrow",
-        columns=["gvkey", "datadate", "fyearq", "fqtr",
-                 "indfmt", "consol", "popsrc", "datafmt",
-                 "fic", "permno", "sich", "tic", "conm",
-                 # GP
-                 "revtq", "saleq", "cogsq", "atq",
-                 # ROIC
-                 "oiadpq", "nopiq", "txtq", "piq",
-                 "ceqq", "dlttq", "dlcq", "cheq",
-                 # Shareholder yield
-                 "dvpsxq", "cshoq",          # quarterly DPS x shares = divs
-                 "prstkcy", "sstky",          # YTD repurchases & stock sales
-                 # market cap
-                 "mkvaltq", "prccq"],
-    )
+    # Read all columns to avoid PyArrow encoding issues with column-level filtering,
+    # then keep only what we need.
+    _needed = [
+        "gvkey", "datadate", "fyearq", "fqtr",
+        "indfmt", "consol", "popsrc", "datafmt",
+        "fic", "permno", "sich", "tic", "conm",
+        "revtq", "saleq", "cogsq", "atq",
+        "oiadpq", "nopiq", "txtq", "piq",
+        "ceqq", "dlttq", "dlcq", "cheq",
+        "dvpsxq", "cshoq",
+        "prstkcy", "sstky",
+        "ibq", "oancfy", "actq", "lctq",
+        "mkvaltq", "prccq",
+    ]
+    comp = pd.read_parquet(DATA_DIR / COMP_FILE, engine="fastparquet",
+                           columns=[c for c in _needed])
+    comp = comp[[c for c in _needed if c in comp.columns]]
     crsp = pd.read_stata(
         DATA_DIR / CRSP_FILE,
         columns=["PERMNO", "date", "RET", "PRC", "SHROUT", "SHRCD"],
@@ -230,19 +237,104 @@ def build_signal(comp, include_components=False):
     comp = comp[comp["ic_avg"] > 0].copy()
     comp["roic"] = comp["nopat_ttm"] / comp["ic_avg"]
 
+    # ==============================================================
+    # SHORT BOOK SIGNALS (separate composite, high = bad = short)
+    # ==============================================================
+
+    # ---- Short Factor 1: Net External Financing ----
+    # Equity issuance from CF statement (already quarterly-ized above)
+    # Debt change from balance sheet: quarterly change in (dlttq + dlcq)
+    comp["total_debt"] = comp["dlttq"] + comp["dlcq"]
+    comp["debt_chg_q"] = comp["total_debt"] - comp.groupby("gvkey")["total_debt"].shift(1)
+    comp["debt_chg_q"] = comp["debt_chg_q"].fillna(0)
+
+    comp["nef_q"] = comp["sstky_q"] - comp["prstkcy_q"] + comp["debt_chg_q"]
+    comp["nef_q"] = comp["nef_q"].fillna(0)
+    comp["nef_ttm"] = (
+        comp.groupby("gvkey")["nef_q"]
+            .rolling(4, min_periods=4).sum()
+            .reset_index(level=0, drop=True)
+    )
+    comp["nef"] = comp["nef_ttm"] / comp["atq"].replace(0, np.nan)
+
+    # ---- Short Factor 2: Leverage ----
+    comp["leverage"] = (comp["dlttq"] + comp["dlcq"]) / comp["atq"].replace(0, np.nan)
+
+    # ---- Short Factor 3: Piotroski F-Score ----
+    comp["ibq"]    = comp["ibq"].fillna(0)
+    comp["ib_ttm"] = (
+        comp.groupby("gvkey")["ibq"]
+            .rolling(4, min_periods=4).sum()
+            .reset_index(level=0, drop=True)
+    )
+    comp["atq_lag4"] = comp.groupby("gvkey")["atq"].shift(4)
+    comp["at_avg4"]  = (comp["atq"] + comp["atq_lag4"]) / 2
+    comp["roa_ttm"]  = comp["ib_ttm"] / comp["at_avg4"].replace(0, np.nan)
+    comp["roa_lag4"] = comp.groupby("gvkey")["roa_ttm"].shift(4)
+
+    comp["oancfy"]    = comp["oancfy"].fillna(0)
+    comp["oancf_q"]   = comp.groupby(["gvkey", "fyearq"])["oancfy"].diff()
+    comp["oancf_q"]   = comp["oancf_q"].fillna(comp["oancfy"])
+    comp.loc[mask_q1, "oancf_q"] = comp.loc[mask_q1, "oancfy"]
+    comp["oancf_ttm"] = (
+        comp.groupby("gvkey")["oancf_q"]
+            .rolling(4, min_periods=4).sum()
+            .reset_index(level=0, drop=True)
+    )
+    comp["cfo_scaled"]   = comp["oancf_ttm"] / comp["at_avg4"].replace(0, np.nan)
+    comp["lev_lag4"]     = comp.groupby("gvkey")["leverage"].shift(4)
+    comp["actq"]         = comp["actq"].fillna(0)
+    comp["lctq"]         = comp["lctq"].fillna(0)
+    comp["curr_ratio"]   = comp["actq"] / comp["lctq"].replace(0, np.nan)
+    comp["cr_lag4"]      = comp.groupby("gvkey")["curr_ratio"].shift(4)
+    comp["csho_lag4"]    = comp.groupby("gvkey")["cshoq"].shift(4)
+    comp["gross_margin"] = ((comp["rev_ttm"] - comp["cogsq_ttm"])
+                            / comp["rev_ttm"].replace(0, np.nan))
+    comp["gm_lag4"]      = comp.groupby("gvkey")["gross_margin"].shift(4)
+    comp["asset_turn"]   = comp["rev_ttm"] / comp["at_avg4"].replace(0, np.nan)
+    comp["at_turn_lag4"] = comp.groupby("gvkey")["asset_turn"].shift(4)
+
+    comp["f1"] = (comp["roa_ttm"]      > 0).astype(float)
+    comp["f2"] = (comp["oancf_ttm"]    > 0).astype(float)
+    comp["f3"] = (comp["roa_ttm"]      > comp["roa_lag4"]).astype(float)
+    comp["f4"] = (comp["cfo_scaled"]   > comp["roa_ttm"]).astype(float)
+    comp["f5"] = (comp["leverage"]     < comp["lev_lag4"]).astype(float)
+    comp["f6"] = (comp["curr_ratio"]   > comp["cr_lag4"]).astype(float)
+    comp["f7"] = (comp["cshoq"]        <= comp["csho_lag4"]).astype(float)
+    comp["f8"] = (comp["gross_margin"] > comp["gm_lag4"]).astype(float)
+    comp["f9"] = (comp["asset_turn"]   > comp["at_turn_lag4"]).astype(float)
+    comp["f_score"] = comp[["f1","f2","f3","f4","f5","f6","f7","f8","f9"]].sum(axis=1)
+
     # ---- Winsorise at 1/99 pct ----
-    for col in ["sh_yield", "gross_prof", "roic"]:
+    for col in ["sh_yield", "gross_prof", "roic", "nef", "leverage", "f_score"]:
         lo, hi = comp[col].quantile(0.01), comp[col].quantile(0.99)
         comp[col] = comp[col].clip(lo, hi)
 
     comp.dropna(subset=["sh_yield", "gross_prof", "roic"], inplace=True)
+    # Short factors: allow NaN (stocks without short signal are simply ineligible for short book)
+    for col in ["nef", "leverage", "f_score"]:
+        comp[col] = comp[col].where(comp[col].notna(), other=np.nan)
 
-    # ---- Cross-sectional z-score each quarter ----
+    # ---- Cross-sectional z-score each quarter (long factors) ----
     for col in ["sh_yield", "gross_prof", "roic"]:
         grp = comp.groupby("datadate")[col]
         comp[f"{col}_z"] = (comp[col] - grp.transform("mean")) / grp.transform("std")
 
     comp[SIGNAL_COL] = (comp["sh_yield_z"] + comp["gross_prof_z"] + comp["roic_z"]) / 3.0
+
+    # ---- Cross-sectional z-score each quarter (short factors) ----
+    for col in ["nef", "leverage", "f_score"]:
+        grp = comp.groupby("datadate")[col]
+        comp[f"{col}_z"] = (comp[col] - grp.transform("mean")) / grp.transform("std")
+
+    # Short composite: high score = bad company = short candidate
+    # nef_z: high = more dilution/debt issuance = bad
+    # f_score_z negated: low F-score = deteriorating fundamentals = bad
+    # leverage_z: high = more leveraged = financially fragile = bad
+    # gross_prof_z negated: low GP = structurally poor business = bad
+    comp[SHORT_SIGNAL_COL] = (
+        comp["nef_z"] - comp["f_score_z"] + comp["leverage_z"] - comp["gross_prof_z"]
+    ) / 4.0
 
     comp["eps_ttm"] = comp["nopat_ttm"] / comp["cshoq"].replace(0, np.nan)
     comp["pe_ratio"] = np.where(
@@ -256,12 +348,14 @@ def build_signal(comp, include_components=False):
         .dt.to_period("M").dt.to_timestamp()
     )
 
-    base_cols = ["permno", "signal_avail", SIGNAL_COL, "datadate", "sich"]
+    base_cols = ["permno", "signal_avail", SIGNAL_COL, SHORT_SIGNAL_COL, "datadate", "sich"]
     extra_cols = [
         "tic", "conm",
         "sh_yield", "gross_prof", "roic",
         "sh_yield_z", "gross_prof_z", "roic_z",
         "pe_ratio",
+        "nef", "leverage", "f_score",
+        "nef_z", "leverage_z", "f_score_z",
     ]
     out_cols = base_cols + extra_cols if include_components else base_cols
     out = comp[out_cols].copy()
@@ -274,25 +368,32 @@ def build_signal(comp, include_components=False):
 # RESAMPLE SIGNAL TO MONTHLY GRID  (same as HW6)
 # =====================================================================
 def resample_signal(sig):
+    sig_cols = [c for c in [SIGNAL_COL, SHORT_SIGNAL_COL] if c in sig.columns]
+
     sich_lookup = (sig.sort_values("signal_avail")
                       .drop_duplicates("PERMNO", keep="last")
                       [["PERMNO", "sich"]].set_index("PERMNO")["sich"])
 
-    sig_core = (sig[["PERMNO", "signal_avail", SIGNAL_COL]]
+    sig_core = (sig[["PERMNO", "signal_avail"] + sig_cols]
                 .sort_values(["PERMNO", "signal_avail"])
                 .drop_duplicates(subset=["PERMNO", "signal_avail"], keep="last"))
 
-    # Pivot to wide (date × PERMNO), forward-fill on monthly grid — all vectorized
-    wide = sig_core.pivot(index="signal_avail", columns="PERMNO", values=SIGNAL_COL)
-    monthly_idx = pd.date_range(wide.index.min(), wide.index.max(), freq="MS")
-    wide = wide.reindex(wide.index.union(monthly_idx)).sort_index().ffill()
-    wide = wide.reindex(monthly_idx)
+    # Pivot each signal column to wide, forward-fill on monthly grid, stack back
+    monthly_idx = None
+    parts = []
+    for col in sig_cols:
+        wide = sig_core.pivot(index="signal_avail", columns="PERMNO", values=col)
+        if monthly_idx is None:
+            monthly_idx = pd.date_range(wide.index.min(), wide.index.max(), freq="MS")
+        wide = wide.reindex(wide.index.union(monthly_idx)).sort_index().ffill()
+        wide = wide.reindex(monthly_idx)
+        part = wide.stack().rename(col).reset_index()
+        part.columns = ["month", "PERMNO", col]
+        parts.append(part.set_index(["month", "PERMNO"]))
 
-    # Stack back to long form
-    signal = wide.stack().rename(SIGNAL_COL).reset_index()
-    signal.columns = ["month", "PERMNO", SIGNAL_COL]
+    signal = pd.concat(parts, axis=1).reset_index()
 
-    # Staleness filter
+    # Staleness filter (based on SIGNAL_COL availability — same fiscal quarter for all signals)
     sig_dates = sig_core[["PERMNO", "signal_avail"]].copy()
     sig_dates = sig_dates.rename(columns={"signal_avail": "month"})
     sig_dates["sig_origin"] = sig_dates["month"]
@@ -333,7 +434,7 @@ def clean_crsp(crsp):
 # =====================================================================
 # MERGE & FORM PORTFOLIOS  (modified from HW6 for 130/30)
 # =====================================================================
-def _sector_neutral_select(df, n_names, ascending):
+def _sector_neutral_select(df, n_names, ascending, signal_col=SIGNAL_COL):
     """Select n_names PERMNOs meeting +/- SECTOR_TOL sector weights."""
     if n_names <= 0 or df.empty:
         return set()
@@ -362,7 +463,7 @@ def _sector_neutral_select(df, n_names, ascending):
     selected_idx = []
     counts = Counter()
     used = set()
-    df_sorted = df.sort_values(SIGNAL_COL, ascending=ascending)
+    df_sorted = df.sort_values(signal_col, ascending=ascending)
     ordered_sector_views = {
         sec: df_sorted[df_sorted["sector"] == sec]
         for sec in weights.index
@@ -411,35 +512,62 @@ def merge_and_form_portfolios(crsp, signal):
     merged["univ_rank"] = merged.groupby("month")["lag_mktcap"].rank(
         ascending=False, method="first"
     )
-    sp500 = merged[merged["univ_rank"] <= N_UNIVERSE].copy()
-    sp500["sector"] = sp500["sich"].map(_SIC_MAP).fillna("Industrials")
-    sp500["sec_mktcap"] = sp500.groupby(["month", "sector"])["lag_mktcap"].transform("sum")
-    sp500["tot_mktcap"] = sp500.groupby("month")["lag_mktcap"].transform("sum")
-    sp500["sp500_sec_wt"] = sp500["sec_mktcap"] / sp500["tot_mktcap"]
+    # Long universe: top N_UNIVERSE (S&P 500 proxy)
+    # Short universe: expanded to N_SHORT_UNIVERSE to include mid-caps
+    long_univ  = merged[merged["univ_rank"] <= N_UNIVERSE].copy()
+    short_univ = merged[merged["univ_rank"] <= N_SHORT_UNIVERSE].copy()
+
+    long_univ["sector"] = long_univ["sich"].map(_SIC_MAP).fillna("Industrials")
+    long_univ["sec_mktcap"] = long_univ.groupby(["month", "sector"])["lag_mktcap"].transform("sum")
+    long_univ["tot_mktcap"] = long_univ.groupby("month")["lag_mktcap"].transform("sum")
+    long_univ["sp500_sec_wt"] = long_univ["sec_mktcap"] / long_univ["tot_mktcap"]
+
+    short_univ["sector"] = short_univ["sich"].map(_SIC_MAP).fillna("Industrials")
 
     monthly_frames = []
     current_long = set()
     current_short = set()
 
-    for idx, (month, month_df) in enumerate(sp500.groupby("month")):
-        month_df = month_df.copy()
+    long_months  = {m: df for m, df in long_univ.groupby("month")}
+    short_months = {m: df for m, df in short_univ.groupby("month")}
+    all_months   = sorted(set(long_months) | set(short_months))
+
+    for idx, month in enumerate(all_months):
+        long_df  = long_months.get(month)
+        short_df = short_months.get(month)
+        if long_df is None or short_df is None:
+            continue
+        long_df  = long_df.copy()
+        short_df = short_df.copy()
+
         rebalance = (idx % REBALANCE_MONTHS == 0) or not current_long or not current_short
         if rebalance:
-            long_ids = _sector_neutral_select(month_df, N_LONG, ascending=False)
-            short_universe = month_df[~month_df["PERMNO"].isin(long_ids)].copy()
-            short_ids = _sector_neutral_select(short_universe, N_SHORT, ascending=True)
+            long_ids = _sector_neutral_select(long_df, N_LONG, ascending=False)
+            # Short candidates: mid-cap universe (ranks 501-1000), excluding long picks
+            short_candidates = short_df[
+                (~short_df["PERMNO"].isin(long_ids)) &
+                (short_df["univ_rank"] > N_UNIVERSE)
+            ].copy()
+            short_candidates = short_candidates.dropna(subset=[SHORT_SIGNAL_COL])
+            short_ids = _sector_neutral_select(short_candidates, N_SHORT, ascending=False,
+                                               signal_col=SHORT_SIGNAL_COL)
             current_long = long_ids
             current_short = short_ids
 
-        month_df["port"] = "mid"
-        if current_long:
-            month_df.loc[month_df["PERMNO"].isin(current_long), "port"] = "long"
-        if current_short:
-            month_df.loc[month_df["PERMNO"].isin(current_short), "port"] = "short"
-        monthly_frames.append(month_df[month_df["port"].isin(["long", "short"])])
+        # Assign ports: longs from large-cap df, shorts from mid-cap df
+        long_df["port"] = "mid"
+        long_df.loc[long_df["PERMNO"].isin(current_long), "port"] = "long"
+
+        short_frame = short_df[short_df["PERMNO"].isin(current_short)].copy()
+        short_frame["port"] = "short"
+
+        monthly_frames.append(pd.concat([
+            long_df[long_df["port"] == "long"],
+            short_frame,
+        ], ignore_index=True))
 
     if not monthly_frames:
-        return pd.DataFrame(columns=sp500.columns)
+        return pd.DataFrame(columns=long_univ.columns)
 
     result = pd.concat(monthly_frames, axis=0)
     print(f"  {len(result):,} obs | "
@@ -566,8 +694,9 @@ def output_results(results, metrics):
               f"Signal: {SIGNAL_COL}   |   Lag: datadate + {LAG_MONTHS} months\n"
               f"Universe: top-{N_UNIVERSE} by mktcap (S&P 500 proxy), SHRCD 10/11, "
               f"lagged |PRC| > ${MIN_PRICE}   |   Rebalancing: quarterly\n"
-              f"130% long top-{N_LONG} / 30% short bottom-{N_SHORT}, equal-weight, "
-              f"+/-{SECTOR_TOL:.0%} sector neutrality\n{sep}")
+              f"130% long top-{N_LONG} from top-{N_UNIVERSE} (Yield+GP+ROIC) / "
+              f"30% short top-{N_SHORT} from ranks {N_UNIVERSE+1}-{N_SHORT_UNIVERSE} mid-caps (NEF+Leverage+F-Score+GP), "
+              f"equal-weight, +/-{SECTOR_TOL:.0%} sector neutrality\n{sep}")
 
     print(header)
     for label in ["130/30 (EW)", "130/30 (VW)",
