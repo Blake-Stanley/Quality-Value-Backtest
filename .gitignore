@@ -4,8 +4,8 @@ CLAUDE.md
 # Data files (large source data — store separately)
 Data/
 
-# Cache
-Code/Cache/
+# Cache (auto-generated, safe to delete, rebuilds in ~60s)
+Cache/
 
 # Python
 __pycache__/
