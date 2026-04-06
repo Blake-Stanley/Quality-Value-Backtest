@@ -1,5 +1,5 @@
 """
-Backtest: 130/30 Long-Short Equity ETF
+Backtest: Market Neutral Long-Short Equity ETF
 ========================================
 Long signal  : Equal-weight composite z-score of:
                  1. Shareholder Yield  = (TTM dividends + TTM net buybacks) / market cap
@@ -11,11 +11,14 @@ Short signal : Separate equal-weight composite z-score (high = bad company = sho
                  3. Leverage = (LT debt + ST debt) / total assets
                  4. Gross Profitability (negated) = TTM (revenue - COGS) / total assets
 Universe     : Russell 1000 proxy (top 1000 by mktcap each month), SHRCD 10/11, lagged price > $3
-Long         : top 100 by long composite score  (130% gross weight, equal-weighted)
-Short        : top 100 by short composite score (30% gross weight, equal-weighted)
+Long         : top 100 by long composite score  (LONG_WEIGHT gross, equal-weighted)
+Short        : top 100 by short composite score (w_short solved for beta neutrality, equal-weighted)
 Sector       : +/-5pp sector neutrality vs Russell 1000 proxy weights
 Rebal        : Monthly
-Return       : R = 1.30 * R_long - 0.30 * R_short
+Return       : R = w_L * R_long - w_S * R_short
+               w_L = LONG_WEIGHT (fixed); w_S = LONG_WEIGHT * beta_long_book / beta_short_book
+               Betas are Vasicek-adjusted trailing BETA_WINDOW-month estimates from CRSP returns.
+               This zeroes the portfolio's market beta each rebalance month.
 """
 
 import pandas as pd
@@ -34,7 +37,7 @@ warnings.filterwarnings("ignore")
 # =====================================================================
 # CONFIG
 # =====================================================================
-STRATEGY_NAME   = "130/30 Long-Short Equity ETF"
+STRATEGY_NAME   = "Market Neutral Long-Short Equity ETF"
 SIGNAL_COL       = "composite_z"
 SHORT_SIGNAL_COL = "short_composite_z"
 DATA_DIR        = Path(__file__).resolve().parent.parent / "Data"
@@ -52,6 +55,9 @@ N_LONG          = 100    # stocks in long book
 N_SHORT         = 100    # stocks in short book
 SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
 REBALANCE_MONTHS = 1     # rebalance frequency in months
+BETA_WINDOW     = 12   # months of trailing returns used to estimate beta
+BETA_MIN_OBS    = 8    # minimum non-NaN observations required for a beta estimate
+LONG_WEIGHT     = 1.30 # long book gross weight; short weight is solved for beta neutrality
 
 
 # =====================================================================
@@ -436,6 +442,62 @@ def clean_crsp(crsp):
 
 
 # =====================================================================
+# TRAILING BETA COMPUTATION
+# =====================================================================
+def compute_trailing_betas(crsp, ff):
+    """Compute Vasicek-adjusted trailing beta for each PERMNO-month.
+
+    Uses CRSP monthly returns regressed (via rolling covariance) against the
+    Fama-French market excess return over a BETA_WINDOW-month trailing window.
+    Vasicek adjustment: adj_beta = (2/3) * raw_beta + (1/3) * 1.0
+    Returns DataFrame with columns [month, PERMNO, adj_beta].
+    """
+    mkt = ff.copy()
+    mkt["month"] = pd.to_datetime(mkt["dateff"]).dt.to_period("M").dt.to_timestamp()
+    mkt = mkt.drop_duplicates("month").set_index("month")["mktrf"]
+
+    ret_wide = crsp.pivot_table(index="month", columns="PERMNO", values="RET")
+    mkt = mkt.reindex(ret_wide.index)
+
+    mkt_var = mkt.rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).var()
+
+    beta_cols = {}
+    for permno in ret_wide.columns:
+        cov = ret_wide[permno].rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).cov(mkt)
+        raw_beta = cov / mkt_var
+        beta_cols[permno] = (2 / 3) * raw_beta + (1 / 3)
+
+    beta_wide = pd.DataFrame(beta_cols)
+    beta_long = beta_wide.stack().reset_index()
+    beta_long.columns = ["month", "PERMNO", "adj_beta"]
+    beta_long = beta_long.dropna(subset=["adj_beta"])
+    beta_long["PERMNO"] = beta_long["PERMNO"].astype(int)
+    return beta_long
+
+
+def compute_market_neutral_weights(long_ids, short_ids, month_betas):
+    """Return (w_long, w_short) that zeroes the portfolio's market beta.
+
+    Long book is fixed at LONG_WEIGHT.  Short weight is solved as:
+        w_short = LONG_WEIGHT * beta_long_book / beta_short_book
+
+    Falls back to (LONG_WEIGHT, LONG_WEIGHT) when beta data are unavailable.
+    w_short is capped at 3 * LONG_WEIGHT to prevent extreme leverage.
+    """
+    long_b  = month_betas.loc[month_betas["PERMNO"].isin(long_ids),  "adj_beta"]
+    short_b = month_betas.loc[month_betas["PERMNO"].isin(short_ids), "adj_beta"]
+
+    beta_L = long_b.mean()  if (len(long_b)  > 0 and not np.isnan(long_b.mean()))  else 1.0
+    beta_S = short_b.mean() if (len(short_b) > 0 and not np.isnan(short_b.mean())) else 1.0
+
+    if beta_S <= 0:
+        beta_S = 1.0
+
+    w_short = float(np.clip(LONG_WEIGHT * beta_L / beta_S, 0.0, 3.0 * LONG_WEIGHT))
+    return LONG_WEIGHT, w_short
+
+
+# =====================================================================
 # MERGE & FORM PORTFOLIOS  (modified from HW6 for 130/30)
 # =====================================================================
 def _sector_neutral_select(df, n_names, ascending, signal_col=SIGNAL_COL):
@@ -509,7 +571,7 @@ def _sector_neutral_select(df, n_names, ascending, signal_col=SIGNAL_COL):
     return set(df.loc[selected_idx, "PERMNO"].tolist())
 
 
-def merge_and_form_portfolios(crsp, signal):
+def merge_and_form_portfolios(crsp, signal, beta_df):
     merged = crsp.merge(signal, on=["PERMNO", "month"], how="inner")
     merged.dropna(subset=["RET", SIGNAL_COL, "lag_mktcap"], inplace=True)
 
@@ -525,8 +587,13 @@ def merge_and_form_portfolios(crsp, signal):
     univ["sp500_sec_wt"] = univ["sec_mktcap"] / univ["tot_mktcap"]
 
     monthly_frames = []
-    current_long = set()
-    current_short = set()
+    current_long    = set()
+    current_short   = set()
+    current_weights = (LONG_WEIGHT, LONG_WEIGHT)
+    weights_dict    = {}
+
+    # Pre-index beta_df by month for fast lookup
+    beta_by_month = {m: g for m, g in beta_df.groupby("month")}
 
     month_groups = {m: df for m, df in univ.groupby("month")}
     all_months   = sorted(month_groups)
@@ -543,8 +610,13 @@ def merge_and_form_portfolios(crsp, signal):
             ].dropna(subset=[SHORT_SIGNAL_COL]).copy()
             short_ids = _sector_neutral_select(short_candidates, N_SHORT, ascending=False,
                                                signal_col=SHORT_SIGNAL_COL)
-            current_long = long_ids
+            current_long  = long_ids
             current_short = short_ids
+            # Compute market-neutral leverage for this rebalance
+            month_betas     = beta_by_month.get(month, pd.DataFrame(columns=["PERMNO", "adj_beta"]))
+            current_weights = compute_market_neutral_weights(current_long, current_short, month_betas)
+
+        weights_dict[month] = current_weights
 
         month_df["port"] = "mid"
         month_df.loc[month_df["PERMNO"].isin(current_long),  "port"] = "long"
@@ -553,33 +625,45 @@ def merge_and_form_portfolios(crsp, signal):
         monthly_frames.append(month_df[month_df["port"].isin(["long", "short"])])
 
     if not monthly_frames:
-        return pd.DataFrame(columns=univ.columns)
+        return pd.DataFrame(columns=univ.columns), {}
 
     result = pd.concat(monthly_frames, axis=0)
+    avg_wl = np.mean([v[0] for v in weights_dict.values()])
+    avg_ws = np.mean([v[1] for v in weights_dict.values()])
     print(f"  {len(result):,} obs | "
           f"{result['PERMNO'].nunique():,} stocks | "
-          f"{result['month'].nunique()} months")
-    return result
+          f"{result['month'].nunique()} months | "
+          f"avg w_long={avg_wl:.3f}, avg w_short={avg_ws:.3f}")
+    return result, weights_dict
 
 
 # =====================================================================
-# PORTFOLIO RETURNS  (modified: 1.3*long - 0.3*short)
+# PORTFOLIO RETURNS  (market-neutral: w_long and w_short vary by month)
 # =====================================================================
-def compute_portfolio_returns(merged):
+def compute_portfolio_returns(merged, weights_dict):
     ew = merged.groupby(["month", "port"])["RET"].mean().unstack("port")
     merged["wt_ret"] = merged["lag_mktcap"] * merged["RET"]
     vw_agg = merged.groupby(["month", "port"])[["wt_ret", "lag_mktcap"]].sum()
     vw_agg["vw"] = vw_agg["wt_ret"] / vw_agg["lag_mktcap"]
     vw = vw_agg["vw"].unstack("port")
 
+    w_long_s  = pd.Series({m: v[0] for m, v in weights_dict.items()})
+    w_short_s = pd.Series({m: v[1] for m, v in weights_dict.items()})
+
     results = pd.DataFrame(index=ew.index)
     results.index.name = "date"
+
+    w_l = w_long_s.reindex(ew.index).fillna(LONG_WEIGHT)
+    w_s = w_short_s.reindex(ew.index).fillna(LONG_WEIGHT)
+    results["w_long"]  = w_l
+    results["w_short"] = w_s
+
     for pfx, src in [("ew", ew), ("vw", vw)]:
-        results[f"{pfx}_long"]   = src["long"]
-        # Short-leg returns are recorded as P&L (i.e., negative of the underlying asset return)
-        results[f"{pfx}_short"]  = -src["short"]
-        # 130/30 combined strategy return
-        results[f"{pfx}_130_30"] = 1.30 * src["long"] - 0.30 * src["short"]
+        results[f"{pfx}_long"]        = src["long"]
+        # Short-leg P&L (negative of the underlying return)
+        results[f"{pfx}_short"]       = -src["short"]
+        # Market-neutral combined return
+        results[f"{pfx}_mkt_neutral"] = w_l * src["long"] - w_s * src["short"]
 
     results.dropna(how="all", inplace=True)
     return results
@@ -680,12 +764,13 @@ def output_results(results, metrics):
               f"Signal: {SIGNAL_COL}   |   Lag: datadate + {LAG_MONTHS} months\n"
               f"Universe: top-{N_UNIVERSE} by mktcap (Russell 1000 proxy), SHRCD 10/11, "
               f"lagged |PRC| > ${MIN_PRICE}   |   Rebalancing: monthly\n"
-              f"130% long top-{N_LONG} from top-{N_UNIVERSE} (Yield+GP+ROIC) / "
-              f"30% short top-{N_SHORT} from top-{N_UNIVERSE} non-long (NEF+Leverage+F-Score+GP), "
+              f"Long top-{N_LONG} from top-{N_UNIVERSE} (Yield+GP+ROIC) at {LONG_WEIGHT:.0%} gross / "
+              f"Short top-{N_SHORT} from top-{N_UNIVERSE} non-long (NEF+Leverage+F-Score+GP) "
+              f"at w_short = {LONG_WEIGHT:.0%} * beta_long / beta_short (Vasicek-adj, {BETA_WINDOW}m trailing), "
               f"equal-weight, +/-{SECTOR_TOL:.0%} sector neutrality\n{sep}")
 
     print(header)
-    for label in ["130/30 (EW)", "130/30 (VW)",
+    for label in ["Mkt Neutral (EW)", "Mkt Neutral (VW)",
                   "EW Long", "EW Short", "VW Long", "VW Short", "S&P 500"]:
         if label in display.index:
             print(f"\n--- {label} ---")
@@ -711,9 +796,9 @@ def output_results(results, metrics):
         (axes[1], "vw", "Value-Weighted"),
     ]:
         for col, color, lbl in [
-            (f"{pfx}_long",    "steelblue", f"Long Book (top {N_LONG})"),
-            (f"{pfx}_short",   "firebrick", f"Short Book (bottom {N_SHORT})"),
-            (f"{pfx}_130_30",  "black",     "130/30 Strategy"),
+            (f"{pfx}_long",        "steelblue", f"Long Book (top {N_LONG})"),
+            (f"{pfx}_short",       "firebrick", f"Short Book (bottom {N_SHORT})"),
+            (f"{pfx}_mkt_neutral", "black",     "Market Neutral Strategy"),
         ]:
             cum = (1 + results[col].dropna()).cumprod()
             ax.plot(cum.index, cum.values, color=color, linewidth=1.2, label=lbl)
@@ -765,13 +850,17 @@ def main():
     crsp = clean_crsp(crsp)
     t = _tick("CRSP cleaned", t, t0)
 
+    print(f"Computing trailing {BETA_WINDOW}-month Vasicek-adjusted betas ...")
+    beta_df = compute_trailing_betas(crsp, ff)
+    t = _tick(f"{len(beta_df):,} PERMNO-month beta estimates", t, t0)
+
     print("Merging & forming portfolios ...")
-    merged = merge_and_form_portfolios(crsp, signal)
+    merged, weights_dict = merge_and_form_portfolios(crsp, signal, beta_df)
     t = _tick("portfolios formed", t, t0)
     merged.to_parquet(CACHE_DIR / "merged.parquet", engine="pyarrow", index=False)
 
     print("Computing portfolio returns ...")
-    results = compute_portfolio_returns(merged)
+    results = compute_portfolio_returns(merged, weights_dict)
     t = _tick("returns computed", t, t0)
 
     ff["month"] = ff["dateff"].dt.to_period("M").dt.to_timestamp()
@@ -779,12 +868,12 @@ def main():
 
     print("Running CAPM regressions ...")
     series_list = [
-        ("ew_130_30", "130/30 (EW)", False),
-        ("ew_long",   "EW Long",     False),
-        ("ew_short",  "EW Short",    True),
-        ("vw_130_30", "130/30 (VW)", False),
-        ("vw_long",   "VW Long",     False),
-        ("vw_short",  "VW Short",    True),
+        ("ew_mkt_neutral", "Mkt Neutral (EW)", False),
+        ("ew_long",        "EW Long",          False),
+        ("ew_short",       "EW Short",         True),
+        ("vw_mkt_neutral", "Mkt Neutral (VW)", False),
+        ("vw_long",        "VW Long",          False),
+        ("vw_short",       "VW Short",         True),
     ]
     metrics = pd.DataFrame(
         [compute_metrics(results[c], n, ff, is_long_short=ls)

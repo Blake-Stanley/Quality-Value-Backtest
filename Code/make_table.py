@@ -11,7 +11,7 @@ def main():
     # ---- Load raw metrics ----
     df = pd.read_csv(OUT_DIR / "130_30_backtest_metrics.csv", index_col=0)
 
-    portfolios = ["130/30 (EW)", "130/30 (VW)", "EW Long", "EW Short", "VW Long", "VW Short"]
+    portfolios = ["Mkt Neutral (EW)", "Mkt Neutral (VW)", "EW Long", "EW Short", "VW Long", "VW Short"]
     portfolios = [p for p in portfolios if p in df.index]
 
     rows = {p: df.loc[p].to_dict() for p in portfolios}
@@ -82,12 +82,12 @@ def main():
     WHITE      = "FFFFFF"
 
     col_colors = {
-        "130/30 (EW)": "1F3864",
-        "130/30 (VW)": "2E5FA3",
-        "EW Long":     "2E75B6",
-        "EW Short":    "C00000",
-        "VW Long":     "375623",
-        "VW Short":    "C55A11",
+        "Mkt Neutral (EW)": "1F3864",
+        "Mkt Neutral (VW)": "2E5FA3",
+        "EW Long":          "2E75B6",
+        "EW Short":         "C00000",
+        "VW Long":          "375623",
+        "VW Short":         "C55A11",
     }
 
     def thick(): return Side(style="medium")
@@ -98,11 +98,11 @@ def main():
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "130-30 Backtest Results"
+    ws.title = "Mkt Neutral Backtest Results"
 
     ws.merge_cells(f"A1:{get_column_letter(n_cols)}1")
     c = ws["A1"]
-    c.value = "130/30 Long-Short Equity ETF — Backtest Results"
+    c.value = "Market Neutral Long-Short Equity ETF — Backtest Results"
     c.font = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
     c.fill = PatternFill("solid", fgColor=DARK_BLUE)
     c.alignment = Alignment(horizontal="center", vertical="center")
@@ -111,8 +111,8 @@ def main():
     ws.merge_cells(f"A2:{get_column_letter(n_cols)}2")
     c = ws["A2"]
     c.value = ("Composite z-score: Shareholder Yield + Gross Profitability + ROIC  |  "
-               "130% long top-100 / 30% short bottom-100 (Russell 1000 proxy, top 1000 by mktcap)  |  "
-               "Monthly rebalancing, ±5 pp sector neutrality")
+               "130% long top-100 / w_short = 130% × β_long/β_short (Vasicek-adj, 12m trailing)  |  "
+               "Monthly rebalancing, ±5 pp sector neutrality, beta-neutral")
     c.font = Font(name="Calibri", italic=True, size=9, color="FFFFFF")
     c.fill = PatternFill("solid", fgColor=MED_BLUE)
     c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
