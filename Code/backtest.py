@@ -498,7 +498,7 @@ def compute_market_neutral_weights(long_ids, short_ids, month_betas):
 
 
 # =====================================================================
-# MERGE & FORM PORTFOLIOS  (modified from HW6 for 130/30)
+# MERGE & FORM PORTFOLIOS
 # =====================================================================
 def _sector_neutral_select(df, n_names, ascending, signal_col=SIGNAL_COL):
     """Select n_names PERMNOs meeting +/- SECTOR_TOL sector weights."""
@@ -777,9 +777,9 @@ def output_results(results, metrics):
             print(display.loc[label].to_string())
     print(f"\n{sep}")
 
-    csv_path     = OUT_DIR / "130_30_backtest_returns.csv"
-    metrics_path = OUT_DIR / "130_30_backtest_metrics.csv"
-    txt_path     = OUT_DIR / "130_30_backtest_metrics.txt"
+    csv_path     = OUT_DIR / "backtest_returns.csv"
+    metrics_path = OUT_DIR / "backtest_metrics.csv"
+    txt_path     = OUT_DIR / "backtest_metrics.txt"
 
     results.to_csv(csv_path)
     metrics.to_csv(metrics_path)
@@ -814,7 +814,7 @@ def output_results(results, metrics):
         ax.grid(True, alpha=0.3, which="both")
 
     fig.tight_layout()
-    plot_path = OUT_DIR / "130_30_backtest.png"
+    plot_path = OUT_DIR / "backtest.png"
     fig.savefig(plot_path, dpi=150)
     plt.close(fig)
     print(f"  Plot saved: {plot_path}")

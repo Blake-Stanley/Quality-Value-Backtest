@@ -9,7 +9,7 @@ OUT_DIR = Path(__file__).resolve().parent.parent / "Output"
 
 def main():
     # ---- Load raw metrics ----
-    df = pd.read_csv(OUT_DIR / "130_30_backtest_metrics.csv", index_col=0)
+    df = pd.read_csv(OUT_DIR / "backtest_metrics.csv", index_col=0)
 
     portfolios = ["Mkt Neutral (EW)", "Mkt Neutral (VW)", "EW Long", "EW Short", "VW Long", "VW Short"]
     portfolios = [p for p in portfolios if p in df.index]
@@ -177,7 +177,7 @@ def main():
         ws.column_dimensions[get_column_letter(j)].width = 20
     ws.freeze_panes = "B5"
 
-    out_path = OUT_DIR / "130_30_Backtest_Table.xlsx"
+    out_path = OUT_DIR / "Backtest_Table.xlsx"
     wb.save(out_path)
     print(f"Saved: {out_path}")
 

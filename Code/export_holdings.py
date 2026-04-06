@@ -1,5 +1,5 @@
 """
-Generate the latest long/short holdings snapshot for the 130/30 strategy.
+Generate the latest long/short holdings snapshot for the market neutral strategy.
 
 Exports a styled Excel workbook (three sheets: All Holdings, Long Book, Short Book)
 using the same visual style as make_table.py.
@@ -13,9 +13,9 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-import backtest_130_30 as bt
+import backtest as bt
 
-OUTPUT_FILE = bt.OUT_DIR / "130_30_holdings_snapshot.xlsx"
+OUTPUT_FILE = bt.OUT_DIR / "holdings_snapshot.xlsx"
 
 # ── Color palette (matches make_table.py) ─────────────────────────────────────
 DARK_BLUE   = "1F3864"
@@ -280,14 +280,14 @@ def main():
     snapshot = snapshot.sort_values(["Book", "Rank"]).reset_index(drop=True)
 
     rebal_str = latest_month.strftime("%B %Y")
-    title_all   = f"130/30 Long-Short Equity — Holdings Snapshot  ({rebal_str})"
-    title_long  = f"130/30 Long-Short Equity — Long Book  ({rebal_str})"
-    title_short = f"130/30 Long-Short Equity — Short Book  ({rebal_str})"
+    title_all   = f"Market Neutral Long-Short Equity — Holdings Snapshot  ({rebal_str})"
+    title_long  = f"Market Neutral Long-Short Equity — Long Book  ({rebal_str})"
+    title_short = f"Market Neutral Long-Short Equity — Short Book  ({rebal_str})"
     subtitle = (
         "Long signal: Shareholder Yield + Gross Profitability + ROIC  |  "
         "Short signal: Net Ext. Financing + Leverage + F-Score + Gross Profitability  |  "
-        "130% long top-100 / 30% short top-100 (S&P 500 proxy)  |  "
-        "Quarterly rebalancing, ±5 pp sector neutrality"
+        "130% long top-100 / w_short = 130% × β_long/β_short (Vasicek-adj, 12m trailing)  |  "
+        "Monthly rebalancing, ±5 pp sector neutrality, beta-neutral"
     )
 
     long_df  = snapshot[snapshot["Book"] == "Long"].copy()
