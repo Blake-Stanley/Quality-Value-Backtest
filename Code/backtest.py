@@ -24,9 +24,6 @@ Return       : R = w_L * R_long - w_S * R_short
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy import stats as scipy_stats
 from collections import Counter
@@ -791,76 +788,6 @@ def output_results(results, metrics):
         f.write(header + "\n\n")
         f.write(display.T.to_string())
         f.write(f"\n\n{sep}\n")
-
-    print("\nPlotting cumulative returns ...")
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-
-    for ax, pfx, title in [
-        (axes[0], "ew", "Equal-Weighted"),
-        (axes[1], "vw", "Value-Weighted"),
-    ]:
-        for col, color, lbl, invert in [
-            (f"{pfx}_long",        "steelblue", f"Long Book (top {N_LONG})",    False),
-            (f"{pfx}_short",       "firebrick", f"Short Book (bottom {N_SHORT})", True),
-            (f"{pfx}_mkt_neutral", "black",     "Market Neutral Strategy",      False),
-        ]:
-            ret = results[col].dropna()
-            if invert:
-                ret = -ret
-            cum = (1 + ret).cumprod()
-            ax.plot(cum.index, cum.values, color=color, linewidth=1.2, label=lbl)
-
-        sp500_cum = (1 + results["sp500"].dropna()).cumprod()
-        ax.plot(sp500_cum.index, sp500_cum.values, color="darkorange",
-                linewidth=1.2, linestyle="--", label="S&P 500", alpha=0.85)
-        ax.set_yscale("log")
-        ax.set_title(f"{STRATEGY_NAME} ({title})", fontsize=11)
-        ax.set_ylabel("Cumulative Return (log scale, $1 invested)")
-        ax.axhline(1, color="gray", linestyle="--", linewidth=0.5)
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3, which="both")
-
-    fig.tight_layout()
-    plot_path = OUT_DIR / "returns.png"
-    fig.savefig(plot_path, dpi=150)
-    plt.close(fig)
-    print(f"  Plot saved: {plot_path}")
-
-    # --- Rolling volatility chart ---
-    print("\nPlotting rolling volatility ...")
-    VOL_WINDOW = 12  # months
-    fig2, axes2 = plt.subplots(1, 2, figsize=(14, 6))
-
-    series_spec = [
-        ("long",        "steelblue", f"Long Book (top {N_LONG})"),
-        ("short",       "firebrick", f"Short Book (bottom {N_SHORT})"),
-        ("mkt_neutral", "black",     "Market Neutral Strategy"),
-    ]
-
-    for ax, pfx, title in [
-        (axes2[0], "ew", "Equal-Weighted"),
-        (axes2[1], "vw", "Value-Weighted"),
-    ]:
-        for suffix, color, lbl in series_spec:
-            col = f"{pfx}_{suffix}"
-            ret = results[col].dropna()
-            vol = ret.rolling(VOL_WINDOW, min_periods=VOL_WINDOW // 2).std() * np.sqrt(12)
-            ax.plot(vol.index, vol.values, color=color, linewidth=1.2, label=lbl)
-
-        sp500_vol = results["sp500"].dropna().rolling(VOL_WINDOW, min_periods=VOL_WINDOW // 2).std() * np.sqrt(12)
-        ax.plot(sp500_vol.index, sp500_vol.values, color="darkorange",
-                linewidth=1.2, linestyle="--", label="S&P 500", alpha=0.85)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
-        ax.set_title(f"{STRATEGY_NAME} — Rolling {VOL_WINDOW}m Volatility ({title})", fontsize=11)
-        ax.set_ylabel("Annualised Volatility (rolling 12m)")
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-    fig2.tight_layout()
-    vol_path = OUT_DIR / "volatility.png"
-    fig2.savefig(vol_path, dpi=150)
-    plt.close(fig2)
-    print(f"  Plot saved: {vol_path}")
 
     print(f"\nReturns CSV : {csv_path}\nMetrics CSV : {metrics_path}\nMetrics TXT : {txt_path}")
 
