@@ -57,7 +57,7 @@ SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
 REBALANCE_MONTHS = 1     # rebalance frequency in months
 BETA_WINDOW     = 12   # months of trailing returns used to estimate beta
 BETA_MIN_OBS    = 8    # minimum non-NaN observations required for a beta estimate
-LONG_WEIGHT     = 3.00 # long book gross weight; short weight is solved for beta neutrality
+LONG_WEIGHT     = 1.5 # long book gross weight; short weight is solved for beta neutrality
 
 
 # =====================================================================
@@ -461,13 +461,8 @@ def compute_trailing_betas(crsp, ff):
 
     mkt_var = mkt.rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).var()
 
-    beta_cols = {}
-    for permno in ret_wide.columns:
-        cov = ret_wide[permno].rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).cov(mkt)
-        raw_beta = cov / mkt_var
-        beta_cols[permno] = (2 / 3) * raw_beta + (1 / 3)
-
-    beta_wide = pd.DataFrame(beta_cols)
+    cov_wide = ret_wide.rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).cov(mkt, pairwise=False)
+    beta_wide = (2 / 3) * cov_wide.div(mkt_var, axis=0) + (1 / 3)
     beta_long = beta_wide.stack().reset_index()
     beta_long.columns = ["month", "PERMNO", "adj_beta"]
     beta_long = beta_long.dropna(subset=["adj_beta"])
