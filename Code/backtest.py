@@ -795,12 +795,15 @@ def output_results(results, metrics):
         (axes[0], "ew", "Equal-Weighted"),
         (axes[1], "vw", "Value-Weighted"),
     ]:
-        for col, color, lbl in [
-            (f"{pfx}_long",        "steelblue", f"Long Book (top {N_LONG})"),
-            (f"{pfx}_short",       "firebrick", f"Short Book (bottom {N_SHORT})"),
-            (f"{pfx}_mkt_neutral", "black",     "Market Neutral Strategy"),
+        for col, color, lbl, invert in [
+            (f"{pfx}_long",        "steelblue", f"Long Book (top {N_LONG})",    False),
+            (f"{pfx}_short",       "firebrick", f"Short Book (bottom {N_SHORT})", True),
+            (f"{pfx}_mkt_neutral", "black",     "Market Neutral Strategy",      False),
         ]:
-            cum = (1 + results[col].dropna()).cumprod()
+            ret = results[col].dropna()
+            if invert:
+                ret = -ret
+            cum = (1 + ret).cumprod()
             ax.plot(cum.index, cum.values, color=color, linewidth=1.2, label=lbl)
 
         sp500_cum = (1 + results["sp500"].dropna()).cumprod()
