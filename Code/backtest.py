@@ -459,9 +459,18 @@ def compute_trailing_betas(crsp, ff):
     ret_wide = crsp.pivot_table(index="month", columns="PERMNO", values="RET")
     mkt = mkt.reindex(ret_wide.index)
 
-    mkt_var = mkt.rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).var()
+    # Cov(R_i, mkt) = E[R_i * mkt] - E[R_i] * E[mkt]
+    # Var(mkt)      = E[mkt^2]     - E[mkt]^2
+    # rolling().mean() uses optimized C paths across all columns simultaneously
+    roll = lambda s: s.rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).mean()
 
-    cov_wide = ret_wide.rolling(BETA_WINDOW, min_periods=BETA_MIN_OBS).cov(mkt, pairwise=False)
+    mkt_mean  = roll(mkt)
+    mkt_var   = roll(mkt ** 2) - mkt_mean ** 2
+
+    cross_mean = roll(ret_wide.multiply(mkt, axis=0))
+    ret_mean   = roll(ret_wide)
+    cov_wide   = cross_mean - ret_mean.multiply(mkt_mean, axis=0)
+
     beta_wide = (2 / 3) * cov_wide.div(mkt_var, axis=0) + (1 / 3)
     beta_long = beta_wide.stack().reset_index()
     beta_long.columns = ["month", "PERMNO", "adj_beta"]
@@ -812,15 +821,52 @@ def output_results(results, metrics):
         ax.grid(True, alpha=0.3, which="both")
 
     fig.tight_layout()
-    plot_path = OUT_DIR / "backtest.png"
+    plot_path = OUT_DIR / "returns.png"
     fig.savefig(plot_path, dpi=150)
     plt.close(fig)
     print(f"  Plot saved: {plot_path}")
+
+    # --- Rolling volatility chart ---
+    print("\nPlotting rolling volatility ...")
+    VOL_WINDOW = 12  # months
+    fig2, axes2 = plt.subplots(1, 2, figsize=(14, 6))
+
+    series_spec = [
+        ("long",        "steelblue", f"Long Book (top {N_LONG})"),
+        ("short",       "firebrick", f"Short Book (bottom {N_SHORT})"),
+        ("mkt_neutral", "black",     "Market Neutral Strategy"),
+    ]
+
+    for ax, pfx, title in [
+        (axes2[0], "ew", "Equal-Weighted"),
+        (axes2[1], "vw", "Value-Weighted"),
+    ]:
+        for suffix, color, lbl in series_spec:
+            col = f"{pfx}_{suffix}"
+            ret = results[col].dropna()
+            vol = ret.rolling(VOL_WINDOW, min_periods=VOL_WINDOW // 2).std() * np.sqrt(12)
+            ax.plot(vol.index, vol.values, color=color, linewidth=1.2, label=lbl)
+
+        sp500_vol = results["sp500"].dropna().rolling(VOL_WINDOW, min_periods=VOL_WINDOW // 2).std() * np.sqrt(12)
+        ax.plot(sp500_vol.index, sp500_vol.values, color="darkorange",
+                linewidth=1.2, linestyle="--", label="S&P 500", alpha=0.85)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.0%}"))
+        ax.set_title(f"{STRATEGY_NAME} — Rolling {VOL_WINDOW}m Volatility ({title})", fontsize=11)
+        ax.set_ylabel("Annualised Volatility (rolling 12m)")
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    fig2.tight_layout()
+    vol_path = OUT_DIR / "volatility.png"
+    fig2.savefig(vol_path, dpi=150)
+    plt.close(fig2)
+    print(f"  Plot saved: {vol_path}")
+
     print(f"\nReturns CSV : {csv_path}\nMetrics CSV : {metrics_path}\nMetrics TXT : {txt_path}")
 
 
 # =====================================================================
-# MAIN  (same as HW6)
+# MAIN 
 # =====================================================================
 def _tick(label, t_prev, t0):
     elapsed = time.time() - t_prev
