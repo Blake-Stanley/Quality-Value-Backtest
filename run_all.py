@@ -2,8 +2,8 @@
 Run the full 130/30 pipeline: backtest, make table, then holdings snapshot.
 
 Usage (from repo root):
-    python run_all.py              # normal run (holdings loads from cache)
-    python run_all.py --refresh    # force rebuild of source data
+    python run_all.py              # full pipeline
+    python Code/export_holdings.py # holdings snapshot only (uses cache if available)
 """
 
 import sys

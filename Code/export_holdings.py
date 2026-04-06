@@ -210,10 +210,8 @@ def _latest_component_snapshot(signal_df: pd.DataFrame) -> pd.DataFrame:
 def main():
     _cache_merged = bt.CACHE_DIR / "merged.parquet"
     _cache_signal = bt.CACHE_DIR / "signal_components.parquet"
-    _refresh      = "--refresh" in sys.argv
 
-    if not _refresh and _cache_merged.exists() and _cache_signal.exists():
-        print("Loading from cache (use --refresh to rebuild from source data) ...")
+    if _cache_merged.exists() and _cache_signal.exists():
         merged     = pd.read_parquet(_cache_merged,  engine="pyarrow")
         signal_raw = pd.read_parquet(_cache_signal,  engine="pyarrow")
         for col in ["month", "signal_source_month"]:
@@ -223,8 +221,6 @@ def main():
             if col in signal_raw.columns:
                 signal_raw[col] = pd.to_datetime(signal_raw[col])
     else:
-        if _refresh:
-            print("--refresh flag set: rebuilding from source data ...")
         comp, crsp, _ = bt.load_data()
         signal_raw    = bt.build_signal(comp, include_components=True)
         signal_monthly = bt.resample_signal(signal_raw)

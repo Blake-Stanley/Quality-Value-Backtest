@@ -16,8 +16,8 @@ computed cross-sectionally each quarter and lagged 4 months to avoid look-ahead 
 ## How to Run
 
 ```bash
-python run_all.py            # full pipeline
-python run_all.py --refresh  # force reload from source data
+python run_all.py                  # full pipeline
+python Code/export_holdings.py     # holdings snapshot only (uses cache if available)
 ```
 
 ## Structure
