@@ -111,8 +111,8 @@ def main():
     ws.merge_cells(f"A2:{get_column_letter(n_cols)}2")
     c = ws["A2"]
     c.value = ("Composite z-score: Shareholder Yield + Gross Profitability + ROIC  |  "
-               "130% long top-100 / 30% short bottom-100 (S&P 500 proxy)  |  "
-               "Quarterly rebalancing, ±5 pp sector neutrality")
+               "130% long top-100 / 30% short bottom-100 (Russell 1000 proxy, top 1000 by mktcap)  |  "
+               "Monthly rebalancing, ±5 pp sector neutrality")
     c.font = Font(name="Calibri", italic=True, size=9, color="FFFFFF")
     c.fill = PatternFill("solid", fgColor=MED_BLUE)
     c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)

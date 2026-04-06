@@ -10,11 +10,11 @@ Short signal : Separate equal-weight composite z-score (high = bad company = sho
                  2. Piotroski F-Score (negated) = 9-criteria fundamental quality score (0-9)
                  3. Leverage = (LT debt + ST debt) / total assets
                  4. Gross Profitability (negated) = TTM (revenue - COGS) / total assets
-Universe     : S&P 500 proxy (top 500 by mktcap each month), SHRCD 10/11, lagged price > $3
+Universe     : Russell 1000 proxy (top 1000 by mktcap each month), SHRCD 10/11, lagged price > $3
 Long         : top 100 by long composite score  (130% gross weight, equal-weighted)
 Short        : top 100 by short composite score (30% gross weight, equal-weighted)
-Sector       : +/-5pp sector neutrality vs S&P 500 proxy weights
-Rebal        : Quarterly
+Sector       : +/-5pp sector neutrality vs Russell 1000 proxy weights
+Rebal        : Monthly
 Return       : R = 1.30 * R_long - 0.30 * R_short
 """
 
@@ -51,7 +51,7 @@ N_UNIVERSE      = 1000   # expanded universe (top 1000 by mktcap)
 N_LONG          = 100    # stocks in long book
 N_SHORT         = 100    # stocks in short book
 SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
-REBALANCE_MONTHS = 3     # rebalance frequency in months
+REBALANCE_MONTHS = 1     # rebalance frequency in months
 
 
 # =====================================================================
@@ -678,8 +678,8 @@ def output_results(results, metrics):
     sep = "=" * 100
     header = (f"\n{sep}\n{STRATEGY_NAME.upper()} BACKTEST\n"
               f"Signal: {SIGNAL_COL}   |   Lag: datadate + {LAG_MONTHS} months\n"
-              f"Universe: top-{N_UNIVERSE} by mktcap (S&P 500 proxy), SHRCD 10/11, "
-              f"lagged |PRC| > ${MIN_PRICE}   |   Rebalancing: quarterly\n"
+              f"Universe: top-{N_UNIVERSE} by mktcap (Russell 1000 proxy), SHRCD 10/11, "
+              f"lagged |PRC| > ${MIN_PRICE}   |   Rebalancing: monthly\n"
               f"130% long top-{N_LONG} from top-{N_UNIVERSE} (Yield+GP+ROIC) / "
               f"30% short top-{N_SHORT} from top-{N_UNIVERSE} non-long (NEF+Leverage+F-Score+GP), "
               f"equal-weight, +/-{SECTOR_TOL:.0%} sector neutrality\n{sep}")
