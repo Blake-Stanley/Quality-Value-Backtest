@@ -372,7 +372,7 @@ def build_signal(comp, include_components=False):
 
 
 # =====================================================================
-# RESAMPLE SIGNAL TO MONTHLY GRID  (same as HW6)
+# RESAMPLE SIGNAL TO MONTHLY GRID 
 # =====================================================================
 def resample_signal(sig):
     sig_cols = [c for c in [SIGNAL_COL, SHORT_SIGNAL_COL] if c in sig.columns]
@@ -417,7 +417,7 @@ def resample_signal(sig):
 
 
 # =====================================================================
-# CLEAN CRSP  (same as HW6)
+# CLEAN CRSP  
 # =====================================================================
 def clean_crsp(crsp):
     crsp.columns = crsp.columns.str.upper()
@@ -671,7 +671,7 @@ def compute_portfolio_returns(merged, weights_dict):
 
 
 # =====================================================================
-# PERFORMANCE METRICS  (same as HW6)
+# PERFORMANCE METRICS  
 # =====================================================================
 def compute_metrics(r, name, ff_df, is_long_short=False):
     r = r.dropna()
