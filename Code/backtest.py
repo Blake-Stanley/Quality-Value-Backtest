@@ -15,13 +15,13 @@ Short signal : Weighted composite z-score (high = bad company = short candidate)
                  7. Gross Profitability (negated, 0.5x wt) = TTM (revenue - COGS) / total assets
 Universe     : Russell 1000 proxy (top 1000 by mktcap each month), SHRCD 10/11, lagged price > $3
 Long         : top 100 by long composite score  (LONG_WEIGHT gross, equal-weighted)
-Short        : top 100 by short composite score (w_short solved for beta neutrality, equal-weighted)
+Short        : top 100 by short composite score (w_short solved for target beta, equal-weighted)
 Sector       : +/-5pp sector neutrality vs Russell 1000 proxy weights
 Rebal        : Monthly
 Return       : R = w_L * R_long - w_S * R_short
-               w_L = LONG_WEIGHT (fixed); w_S = LONG_WEIGHT * beta_long_book / beta_short_book
+               w_L = LONG_WEIGHT (fixed); w_S = (LONG_WEIGHT * beta_L - TARGET_BETA) / beta_S
                Betas are Vasicek-adjusted trailing BETA_WINDOW-month estimates from CRSP returns.
-               This zeroes the portfolio's market beta each rebalance month.
+               This targets TARGET_BETA net portfolio beta each rebalance month.
 """
 
 import pandas as pd
@@ -57,7 +57,8 @@ SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
 REBALANCE_MONTHS = 1     # rebalance frequency in months
 BETA_WINDOW     = 12   # months of trailing returns used to estimate beta
 BETA_MIN_OBS    = 8    # minimum non-NaN observations required for a beta estimate
-LONG_WEIGHT     = 1.75 # long book gross weight; short weight is solved for beta neutrality
+LONG_WEIGHT     = 1.75 # long book gross weight; short weight is solved for target beta
+TARGET_BETA     = 0.30 # target net portfolio beta (0.0 = market neutral)
 
 
 # =====================================================================
@@ -516,10 +517,11 @@ def compute_trailing_betas(crsp, ff):
 
 
 def compute_market_neutral_weights(long_ids, short_ids, month_betas):
-    """Return (w_long, w_short) that zeroes the portfolio's market beta.
+    """Return (w_long, w_short) that achieves TARGET_BETA net portfolio beta.
 
     Long book is fixed at LONG_WEIGHT.  Short weight is solved as:
-        w_short = LONG_WEIGHT * beta_long_book / beta_short_book
+        net_beta = w_long * beta_L - w_short * beta_S = TARGET_BETA
+        w_short  = (LONG_WEIGHT * beta_L - TARGET_BETA) / beta_S
 
     Falls back to (LONG_WEIGHT, LONG_WEIGHT) when beta data are unavailable.
     w_short is capped at 3 * LONG_WEIGHT to prevent extreme leverage.
@@ -533,7 +535,7 @@ def compute_market_neutral_weights(long_ids, short_ids, month_betas):
     if beta_S <= 0:
         beta_S = 1.0
 
-    w_short = float(np.clip(LONG_WEIGHT * beta_L / beta_S, 0.0, 3.0 * LONG_WEIGHT))
+    w_short = float(np.clip((LONG_WEIGHT * beta_L - TARGET_BETA) / beta_S, 0.0, 3.0 * LONG_WEIGHT))
     return LONG_WEIGHT, w_short
 
 
