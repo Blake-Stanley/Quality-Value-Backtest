@@ -97,3 +97,45 @@ python Code/make_table.py          # regenerate styled Excel table from existing
 | `BETA_WINDOW` | 12 | Trailing months for beta estimation |
 | `BETA_MIN_OBS` | 8 | Minimum observations required for beta estimate |
 | `LONG_WEIGHT` | 1.75 | Fixed long gross weight; short weight solved for beta neutrality |
+
+## Git Worktree Workflow
+
+**What it solves:** Without worktrees, `git checkout other-branch` swaps every file in the folder.
+Uncommitted changes bleed between branches, stash/pop gets messy, and you can't run two
+branches side by side. Worktrees give each branch its own folder.
+
+**How it works:** The main repo folder stays on `main`. Each experimental branch gets a sibling
+folder (a "worktree") that shares the same `.git` history but has its own working copy.
+
+### Commands
+```bash
+# Create a worktree for a new branch (from repo root)
+git worktree add ../Backtest-<branch-name> -b <branch-name>
+# Example:
+git worktree add ../Backtest-momentum-decay -b momentum-decay
+
+# Create a worktree for an existing branch
+git worktree add ../Backtest-<branch-name> <branch-name>
+
+# List active worktrees
+git worktree list
+
+# Remove a worktree when done (after merging)
+git worktree remove ../Backtest-<branch-name>
+```
+
+### Workflow for model tweaks
+1. **Create worktree:** `git worktree add ../Backtest-my-experiment -b my-experiment`
+2. **Work in that folder:** `cd ../Backtest-my-experiment && python run_all.py`
+3. **Commit there:** `git add . && git commit -m "describe change" && git push -u origin my-experiment`
+4. **Compare results** side by side — main's Output/ and the worktree's Output/ exist simultaneously
+5. **Merge if happy:** `cd ../Backtest && git merge my-experiment` (from the main worktree)
+6. **Clean up:** `git worktree remove ../Backtest-my-experiment`
+
+### Rules for Claude
+- **Always use worktrees** (not `git checkout`) when working on a separate branch
+- Never switch branches in the main repo folder — create a worktree instead
+- Worktree folders go in the parent directory as `Backtest-<branch-name>`
+- Data/ folder is large — worktrees share git objects so this doesn't duplicate disk space,
+  but `Cache/` and `Output/` will be regenerated per worktree
+- Commit and push the worktree branch before merging into main
