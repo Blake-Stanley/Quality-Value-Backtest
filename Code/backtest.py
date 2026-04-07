@@ -5,11 +5,17 @@ Long signal  : Equal-weight composite z-score of:
                  1. Shareholder Yield  = (TTM dividends + TTM net buybacks) / market cap
                  2. Gross Profitability = TTM (revenue - COGS) / total assets
                  3. ROIC               = TTM NOPAT / avg invested capital
-Short signal : Separate equal-weight composite z-score (high = bad company = short candidate):
-                 1. Net External Financing = TTM (stock issuance - buybacks + debt issuance - repayments) / assets
-                 2. Piotroski F-Score (negated) = 9-criteria fundamental quality score (0-9)
-                 3. Leverage = (LT debt + ST debt) / total assets
-                 4. Gross Profitability (negated) = TTM (revenue - COGS) / total assets
+Short signal : Weighted composite z-score (high = bad company = short candidate):
+                 1. FCF Yield (negated, 1.5x wt) = TTM (operating CF - capex) / enterprise value
+                 2. Accruals = TTM (net income - operating CF) / avg assets
+                 3. P/E Ratio = price / TTM NOPAT per share (overvaluation)
+                 4. Net External Financing = TTM (stock issuance - buybacks + debt issuance) / assets
+                 5. Piotroski F-Score (negated) = 9-criteria fundamental quality score (0-9)
+                 6. Leverage (0.5x wt) = (LT debt + ST debt) / total assets
+                 7. Gross Profitability (negated, 0.5x wt) = TTM (revenue - COGS) / total assets
+                 + CRSP-based factors blended in at portfolio formation:
+                 8. 9-Month Price Momentum (negated, 1.0x wt) = cumulative return months t-10..t-2
+                 9. Return Volatility (0.5x wt) = trailing 12m annualised std dev (arbitrage risk)
 Universe     : Russell 1000 proxy (top 1000 by mktcap each month), SHRCD 10/11, lagged price > $3
 Long         : top 100 by long composite score  (LONG_WEIGHT gross, equal-weighted)
 Short        : top 100 by short composite score (w_short solved for beta neutrality, equal-weighted)
@@ -148,6 +154,7 @@ def load_data():
         "prstkcy", "sstky",
         "ibq", "oancfy", "actq", "lctq",
         "mkvaltq", "prccq",
+        "capxy", "dpq",
     ]
     comp = pd.read_parquet(DATA_DIR / COMP_FILE, engine="fastparquet",
                            columns=[c for c in _needed])
@@ -175,7 +182,8 @@ def build_signal(comp, include_components=False):
     comp["permno"]   = comp["permno"].astype("Int64")
 
     for c in ["dlttq", "dlcq", "cheq", "txtq", "piq",
-              "dvpsxq", "prstkcy", "sstky", "mkvaltq"]:
+              "dvpsxq", "prstkcy", "sstky", "mkvaltq",
+              "capxy", "dpq"]:
         comp[c] = comp[c].fillna(0)
 
     comp["rev"] = comp["revtq"].fillna(comp["saleq"])
@@ -307,14 +315,41 @@ def build_signal(comp, include_components=False):
     comp["f9"] = (comp["asset_turn"]   > comp["at_turn_lag4"]).astype(float)
     comp["f_score"] = comp[["f1","f2","f3","f4","f5","f6","f7","f8","f9"]].sum(axis=1)
 
+    # ---- Short Factor 4: Free Cash Flow Yield (negated — low FCF = short) ----
+    comp["capxy_q"] = comp.groupby(["gvkey", "fyearq"])["capxy"].diff()
+    comp["capxy_q"] = comp["capxy_q"].fillna(comp["capxy"])
+    comp.loc[mask_q1, "capxy_q"] = comp.loc[mask_q1, "capxy"]
+    comp["capxy_q"] = comp["capxy_q"].fillna(0)
+    comp["capxy_ttm"] = (
+        comp.groupby("gvkey")["capxy_q"]
+            .rolling(4, min_periods=4).sum()
+            .reset_index(level=0, drop=True)
+    )
+    comp["fcf_ttm"] = comp["oancf_ttm"] - comp["capxy_ttm"].abs()
+    comp["ev"] = comp["mktcap"] + comp["dlttq"] + comp["dlcq"] - comp["cheq"]
+    comp["fcf_yield"] = comp["fcf_ttm"] / comp["ev"].replace(0, np.nan)
+
+    # ---- Short Factor 5: Accruals (high accruals = poor earnings quality) ----
+    comp["accruals"] = (comp["ib_ttm"] - comp["oancf_ttm"]) / comp["at_avg4"].replace(0, np.nan)
+
+    # ---- Short Factor 6: Valuation (high P/E = overvalued, more vulnerable) ----
+    comp["_eps_ttm"] = comp["nopat_ttm"] / comp["cshoq"].replace(0, np.nan)
+    comp["_pe_short"] = np.where(
+        comp["_eps_ttm"] > 0,
+        comp["prccq"].abs() / comp["_eps_ttm"],
+        np.nan,
+    )
+
     # ---- Winsorise at 1/99 pct ----
-    for col in ["sh_yield", "gross_prof", "roic", "nef", "leverage", "f_score"]:
+    for col in ["sh_yield", "gross_prof", "roic",
+                "nef", "leverage", "f_score",
+                "fcf_yield", "accruals", "_pe_short"]:
         lo, hi = comp[col].quantile(0.01), comp[col].quantile(0.99)
         comp[col] = comp[col].clip(lo, hi)
 
     comp.dropna(subset=["sh_yield", "gross_prof", "roic"], inplace=True)
     # Short factors: allow NaN (stocks without short signal are simply ineligible for short book)
-    for col in ["nef", "leverage", "f_score"]:
+    for col in ["nef", "leverage", "f_score", "fcf_yield", "accruals", "_pe_short"]:
         comp[col] = comp[col].where(comp[col].notna(), other=np.nan)
 
     # ---- Cross-sectional z-score each quarter (long factors) ----
@@ -325,21 +360,28 @@ def build_signal(comp, include_components=False):
     comp[SIGNAL_COL] = (comp["sh_yield_z"] + comp["gross_prof_z"] + comp["roic_z"]) / 3.0
 
     # ---- Cross-sectional z-score each quarter (short factors) ----
-    for col in ["nef", "leverage", "f_score"]:
+    for col in ["nef", "leverage", "f_score", "fcf_yield", "accruals", "_pe_short"]:
         grp = comp.groupby("datadate")[col]
         comp[f"{col}_z"] = (comp[col] - grp.transform("mean")) / grp.transform("std")
 
     # Short composite: high score = bad company = short candidate
-    # nef_z: high = more dilution/debt issuance = bad
-    # f_score_z negated: low F-score = deteriorating fundamentals = bad
-    # leverage_z: high = more leveraged = financially fragile = bad
-    # gross_prof_z negated: low GP = structurally poor business = bad
-    # Use row-wise mean (skipna=True) so one missing factor doesn't nullify the composite
+    # Weights informed by Empirical Research Partners Failure Model:
+    #   - FCF yield (negated): paper's #1 factor — no cash flow is the strongest failure signal
+    #   - Accruals: high accruals = earnings not backed by cash = quality red flag
+    #   - P/E (high): overvalued + bad fundamentals = especially vulnerable (paper Exhibit 13)
+    #   - nef_z: dilution/debt issuance = capital-hungry company
+    #   - f_score_z (negated): low Piotroski = deteriorating fundamentals
+    #   - leverage_z: financially fragile
+    #   - gross_prof_z (negated): structurally poor business
+    # Momentum & volatility factors are added from CRSP in merge_and_form_portfolios()
     _short_z = pd.DataFrame({
-        "nef_z":          comp["nef_z"],
-        "f_score_z_neg":  -comp["f_score_z"],
-        "leverage_z":     comp["leverage_z"],
-        "gross_prof_z_neg": -comp["gross_prof_z"],
+        "fcf_yield_z_neg":  -comp["fcf_yield_z"] * 1.5,   # paper's top factor, heavy weight
+        "accruals_z":        comp["accruals_z"],            # earnings quality
+        "pe_z":              comp["_pe_short_z"],           # overvaluation
+        "nef_z":             comp["nef_z"],                 # dilution/financing
+        "f_score_z_neg":    -comp["f_score_z"],             # fundamentals quality
+        "leverage_z":        comp["leverage_z"] * 0.5,     # less predictive per paper
+        "gross_prof_z_neg": -comp["gross_prof_z"] * 0.5,   # already captured by FCF
     })
     comp[SHORT_SIGNAL_COL] = _short_z.mean(axis=1)
 
@@ -361,8 +403,8 @@ def build_signal(comp, include_components=False):
         "sh_yield", "gross_prof", "roic",
         "sh_yield_z", "gross_prof_z", "roic_z",
         "pe_ratio",
-        "nef", "leverage", "f_score",
-        "nef_z", "leverage_z", "f_score_z",
+        "nef", "leverage", "f_score", "fcf_yield", "accruals",
+        "nef_z", "leverage_z", "f_score_z", "fcf_yield_z", "accruals_z", "_pe_short_z",
     ]
     out_cols = base_cols + extra_cols if include_components else base_cols
     out = comp[out_cols].copy()
@@ -572,9 +614,54 @@ def _sector_neutral_select(df, n_names, ascending, signal_col=SIGNAL_COL):
     return set(df.loc[selected_idx, "PERMNO"].tolist())
 
 
-def merge_and_form_portfolios(crsp, signal, beta_df):
+def _compute_crsp_short_factors(crsp):
+    """Compute 9-month price momentum and trailing return volatility from CRSP.
+
+    Returns DataFrame with [month, PERMNO, mom9m, ret_vol].
+    mom9m: cumulative return months t-10 to t-2 (skip last month, 9-month window)
+    ret_vol: trailing 12-month return standard deviation (annualised)
+    """
+    ret_wide = crsp.pivot_table(index="month", columns="PERMNO", values="RET")
+
+    # 9-month momentum: product of (1+R) over months t-10..t-2, skip t-1
+    cum = (1 + ret_wide).rolling(9, min_periods=6).apply(np.prod, raw=True) - 1
+    mom9m = cum.shift(1)  # skip the most recent month
+
+    # 12-month return volatility (annualised)
+    vol = ret_wide.rolling(12, min_periods=8).std() * np.sqrt(12)
+
+    mom_long = mom9m.stack().reset_index()
+    mom_long.columns = ["month", "PERMNO", "mom9m"]
+    vol_long = vol.stack().reset_index()
+    vol_long.columns = ["month", "PERMNO", "ret_vol"]
+
+    out = mom_long.merge(vol_long, on=["month", "PERMNO"], how="outer")
+    out["PERMNO"] = out["PERMNO"].astype(int)
+    return out
+
+
+def merge_and_form_portfolios(crsp, signal, beta_df, crsp_factors=None):
     merged = crsp.merge(signal, on=["PERMNO", "month"], how="inner")
     merged.dropna(subset=["RET", SIGNAL_COL, "lag_mktcap"], inplace=True)
+
+    # Blend CRSP-based short factors into the short composite
+    if crsp_factors is not None:
+        merged = merged.merge(crsp_factors, on=["PERMNO", "month"], how="left")
+        # Cross-sectional z-score momentum and volatility each month
+        for col in ["mom9m", "ret_vol"]:
+            grp = merged.groupby("month")[col]
+            merged[f"{col}_z"] = (merged[col] - grp.transform("mean")) / grp.transform("std")
+        # Blend into short composite:
+        # mom9m_z negated: bad price trend = high short score (paper Exhibit 29)
+        # ret_vol_z: high volatility = hard to arbitrage = vulnerability persists (paper Exhibit 26)
+        mom_contrib  = -merged["mom9m_z"].fillna(0) * 1.0   # strong weight — paper's key price factor
+        vol_contrib  =  merged["ret_vol_z"].fillna(0) * 0.5  # moderate weight — arbitrage risk proxy
+        # Reweight: original short composite was mean of ~7 terms ≈ sum/7.
+        # Add momentum and vol as additional weighted terms.
+        n_original = 7.0  # number of terms in the fundamental short composite
+        merged[SHORT_SIGNAL_COL] = (
+            merged[SHORT_SIGNAL_COL] * n_original + mom_contrib + vol_contrib
+        ) / (n_original + 1.5)
 
     merged["univ_rank"] = merged.groupby("month")["lag_mktcap"].rank(
         ascending=False, method="first"
@@ -825,8 +912,12 @@ def main():
     beta_df = compute_trailing_betas(crsp, ff)
     t = _tick(f"{len(beta_df):,} PERMNO-month beta estimates", t, t0)
 
+    print("Computing CRSP-based short factors (momentum, volatility) ...")
+    crsp_factors = _compute_crsp_short_factors(crsp)
+    t = _tick(f"{len(crsp_factors):,} PERMNO-month CRSP factor rows", t, t0)
+
     print("Merging & forming portfolios ...")
-    merged, weights_dict = merge_and_form_portfolios(crsp, signal, beta_df)
+    merged, weights_dict = merge_and_form_portfolios(crsp, signal, beta_df, crsp_factors)
     t = _tick("portfolios formed", t, t0)
     merged.to_parquet(CACHE_DIR / "merged.parquet", engine="pyarrow", index=False)
 
