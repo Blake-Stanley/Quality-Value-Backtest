@@ -29,10 +29,7 @@ OUT_DIR    = ROOT / "Output"
 CHARTS_DIR = OUT_DIR / "Charts"
 CACHE_DIR  = ROOT / "Cache"
 
-STRATEGY   = "Market Neutral Long-Short Equity ETF"
-N_LONG     = 100
-N_SHORT    = 100
-LONG_WEIGHT = 1.30
+from backtest import LONG_WEIGHT, N_LONG, N_SHORT, STRATEGY_NAME as STRATEGY
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 def _pct_fmt(ax, axis="y"):

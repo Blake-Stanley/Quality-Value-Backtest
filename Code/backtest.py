@@ -54,7 +54,7 @@ SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
 REBALANCE_MONTHS = 1     # rebalance frequency in months
 BETA_WINDOW     = 12   # months of trailing returns used to estimate beta
 BETA_MIN_OBS    = 8    # minimum non-NaN observations required for a beta estimate
-LONG_WEIGHT     = 1.5 # long book gross weight; short weight is solved for beta neutrality
+LONG_WEIGHT     = 1.75 # long book gross weight; short weight is solved for beta neutrality
 
 
 # =====================================================================

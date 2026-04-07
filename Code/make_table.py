@@ -3,6 +3,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from pathlib import Path
 import pandas as pd
+from backtest import LONG_WEIGHT, BETA_WINDOW, SECTOR_TOL, N_LONG, N_SHORT, N_UNIVERSE
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "Output"
 
@@ -110,9 +111,10 @@ def main():
 
     ws.merge_cells(f"A2:{get_column_letter(n_cols)}2")
     c = ws["A2"]
-    c.value = ("Composite z-score: Shareholder Yield + Gross Profitability + ROIC  |  "
-               "130% long top-100 / w_short = 130% × β_long/β_short (Vasicek-adj, 12m trailing)  |  "
-               "Monthly rebalancing, ±5 pp sector neutrality, beta-neutral")
+    c.value = (f"Composite z-score: Shareholder Yield + Gross Profitability + ROIC  |  "
+               f"{LONG_WEIGHT:.0%} long top-{N_LONG} / w_short = {LONG_WEIGHT:.0%} × β_long/β_short "
+               f"(Vasicek-adj, {BETA_WINDOW}m trailing)  |  "
+               f"Monthly rebalancing, ±{SECTOR_TOL:.0%} sector neutrality, beta-neutral")
     c.font = Font(name="Calibri", italic=True, size=9, color="FFFFFF")
     c.fill = PatternFill("solid", fgColor=MED_BLUE)
     c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
