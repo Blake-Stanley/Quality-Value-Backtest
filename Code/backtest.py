@@ -13,9 +13,6 @@ Short signal : Weighted composite z-score (high = bad company = short candidate)
                  5. Piotroski F-Score (negated) = 9-criteria fundamental quality score (0-9)
                  6. Leverage (0.5x wt) = (LT debt + ST debt) / total assets
                  7. Gross Profitability (negated, 0.5x wt) = TTM (revenue - COGS) / total assets
-                 + CRSP-based factors blended in at portfolio formation:
-                 8. 9-Month Price Momentum (negated, 1.0x wt) = cumulative return months t-10..t-2
-                 9. Return Volatility (0.5x wt) = trailing 12m annualised std dev (arbitrage risk)
 Universe     : Russell 1000 proxy (top 1000 by mktcap each month), SHRCD 10/11, lagged price > $3
 Long         : top 100 by long composite score  (LONG_WEIGHT gross, equal-weighted)
 Short        : top 100 by short composite score (w_short solved for beta neutrality, equal-weighted)
@@ -614,54 +611,9 @@ def _sector_neutral_select(df, n_names, ascending, signal_col=SIGNAL_COL):
     return set(df.loc[selected_idx, "PERMNO"].tolist())
 
 
-def _compute_crsp_short_factors(crsp):
-    """Compute 9-month price momentum and trailing return volatility from CRSP.
-
-    Returns DataFrame with [month, PERMNO, mom9m, ret_vol].
-    mom9m: cumulative return months t-10 to t-2 (skip last month, 9-month window)
-    ret_vol: trailing 12-month return standard deviation (annualised)
-    """
-    ret_wide = crsp.pivot_table(index="month", columns="PERMNO", values="RET")
-
-    # 9-month momentum: product of (1+R) over months t-10..t-2, skip t-1
-    cum = (1 + ret_wide).rolling(9, min_periods=6).apply(np.prod, raw=True) - 1
-    mom9m = cum.shift(1)  # skip the most recent month
-
-    # 12-month return volatility (annualised)
-    vol = ret_wide.rolling(12, min_periods=8).std() * np.sqrt(12)
-
-    mom_long = mom9m.stack().reset_index()
-    mom_long.columns = ["month", "PERMNO", "mom9m"]
-    vol_long = vol.stack().reset_index()
-    vol_long.columns = ["month", "PERMNO", "ret_vol"]
-
-    out = mom_long.merge(vol_long, on=["month", "PERMNO"], how="outer")
-    out["PERMNO"] = out["PERMNO"].astype(int)
-    return out
-
-
-def merge_and_form_portfolios(crsp, signal, beta_df, crsp_factors=None):
+def merge_and_form_portfolios(crsp, signal, beta_df):
     merged = crsp.merge(signal, on=["PERMNO", "month"], how="inner")
     merged.dropna(subset=["RET", SIGNAL_COL, "lag_mktcap"], inplace=True)
-
-    # Blend CRSP-based short factors into the short composite
-    if crsp_factors is not None:
-        merged = merged.merge(crsp_factors, on=["PERMNO", "month"], how="left")
-        # Cross-sectional z-score momentum and volatility each month
-        for col in ["mom9m", "ret_vol"]:
-            grp = merged.groupby("month")[col]
-            merged[f"{col}_z"] = (merged[col] - grp.transform("mean")) / grp.transform("std")
-        # Blend into short composite:
-        # mom9m_z negated: bad price trend = high short score (paper Exhibit 29)
-        # ret_vol_z: high volatility = hard to arbitrage = vulnerability persists (paper Exhibit 26)
-        mom_contrib  = -merged["mom9m_z"].fillna(0) * 1.0   # strong weight — paper's key price factor
-        vol_contrib  =  merged["ret_vol_z"].fillna(0) * 0.5  # moderate weight — arbitrage risk proxy
-        # Reweight: original short composite was mean of ~7 terms ≈ sum/7.
-        # Add momentum and vol as additional weighted terms.
-        n_original = 7.0  # number of terms in the fundamental short composite
-        merged[SHORT_SIGNAL_COL] = (
-            merged[SHORT_SIGNAL_COL] * n_original + mom_contrib + vol_contrib
-        ) / (n_original + 1.5)
 
     merged["univ_rank"] = merged.groupby("month")["lag_mktcap"].rank(
         ascending=False, method="first"
@@ -912,12 +864,8 @@ def main():
     beta_df = compute_trailing_betas(crsp, ff)
     t = _tick(f"{len(beta_df):,} PERMNO-month beta estimates", t, t0)
 
-    print("Computing CRSP-based short factors (momentum, volatility) ...")
-    crsp_factors = _compute_crsp_short_factors(crsp)
-    t = _tick(f"{len(crsp_factors):,} PERMNO-month CRSP factor rows", t, t0)
-
     print("Merging & forming portfolios ...")
-    merged, weights_dict = merge_and_form_portfolios(crsp, signal, beta_df, crsp_factors)
+    merged, weights_dict = merge_and_form_portfolios(crsp, signal, beta_df)
     t = _tick("portfolios formed", t, t0)
     merged.to_parquet(CACHE_DIR / "merged.parquet", engine="pyarrow", index=False)
 
