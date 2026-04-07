@@ -15,7 +15,10 @@
       "Bash('/c/Program Files/GitHub CLI/gh.exe' api repos/Blake-Stanley/Quality-Value-Backtest -X PATCH -f default_branch=universe-1000)",
       "Bash('/c/Program Files/GitHub CLI/gh.exe' api repos/Blake-Stanley/Quality-Value-Backtest/git/refs/heads/main -X DELETE)",
       "Bash('/c/Program Files/GitHub CLI/gh.exe' api repos/Blake-Stanley/Quality-Value-Backtest/git/refs/heads/modified-short-book -X DELETE)",
-      "Bash('/c/Program Files/GitHub CLI/gh.exe' api repos/Blake-Stanley/Quality-Value-Backtest/git/refs/heads/short-mid-caps -X DELETE)"
+      "Bash('/c/Program Files/GitHub CLI/gh.exe' api repos/Blake-Stanley/Quality-Value-Backtest/git/refs/heads/short-mid-caps -X DELETE)",
+      "Bash(cp:*)",
+      "Bash(cmd:*)",
+      "Bash(python run_all.py)"
     ]
   }
 }
