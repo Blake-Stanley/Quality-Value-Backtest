@@ -60,7 +60,7 @@ SECTOR_TOL      = 0.05   # +/-5pp sector neutrality
 REBALANCE_MONTHS = 1     # rebalance frequency in months
 BETA_WINDOW     = 12   # months of trailing returns used to estimate beta
 BETA_MIN_OBS    = 8    # minimum non-NaN observations required for a beta estimate
-LONG_WEIGHT     = 1.5 # long book gross weight; short weight is solved for beta neutrality
+LONG_WEIGHT     = 1.75 # long book gross weight; short weight is solved for beta neutrality
 
 
 # =====================================================================
@@ -316,7 +316,6 @@ def build_signal(comp, include_components=False):
     comp["f_score"] = comp[["f1","f2","f3","f4","f5","f6","f7","f8","f9"]].sum(axis=1)
 
     # ---- Short Factor 4: Free Cash Flow Yield (negated — low FCF = short) ----
-    # FCF = operating cash flow - capex; yield = FCF / enterprise value
     comp["capxy_q"] = comp.groupby(["gvkey", "fyearq"])["capxy"].diff()
     comp["capxy_q"] = comp["capxy_q"].fillna(comp["capxy"])
     comp.loc[mask_q1, "capxy_q"] = comp.loc[mask_q1, "capxy"]
@@ -334,7 +333,6 @@ def build_signal(comp, include_components=False):
     comp["accruals"] = (comp["ib_ttm"] - comp["oancf_ttm"]) / comp["at_avg4"].replace(0, np.nan)
 
     # ---- Short Factor 6: Valuation (high P/E = overvalued, more vulnerable) ----
-    # Already computed pe_ratio below; compute it here for short signal
     comp["_eps_ttm"] = comp["nopat_ttm"] / comp["cshoq"].replace(0, np.nan)
     comp["_pe_short"] = np.where(
         comp["_eps_ttm"] > 0,
@@ -626,7 +624,6 @@ def _compute_crsp_short_factors(crsp):
     ret_wide = crsp.pivot_table(index="month", columns="PERMNO", values="RET")
 
     # 9-month momentum: product of (1+R) over months t-10..t-2, skip t-1
-    # Use rolling 9-month return ending 1 month ago
     cum = (1 + ret_wide).rolling(9, min_periods=6).apply(np.prod, raw=True) - 1
     mom9m = cum.shift(1)  # skip the most recent month
 

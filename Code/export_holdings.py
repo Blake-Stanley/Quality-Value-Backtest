@@ -243,8 +243,8 @@ def main():
     snapshot["Book"] = snapshot["port"].str.title()
     snapshot["Book Weight"] = np.where(
         snapshot["Book"] == "Long",
-        1.30 / bt.N_LONG,
-        0.30 / bt.N_SHORT,
+        bt.LONG_WEIGHT / bt.N_LONG,
+        (bt.LONG_WEIGHT - 1.0) / bt.N_SHORT,
     )
     snapshot["Rank"] = np.nan
     long_mask  = snapshot["Book"] == "Long"
@@ -286,8 +286,9 @@ def main():
     subtitle = (
         "Long signal: Shareholder Yield + Gross Profitability + ROIC  |  "
         "Short signal: Net Ext. Financing + Leverage + F-Score + Gross Profitability  |  "
-        "130% long top-100 / w_short = 130% × β_long/β_short (Vasicek-adj, 12m trailing)  |  "
-        "Monthly rebalancing, ±5 pp sector neutrality, beta-neutral"
+        f"{bt.LONG_WEIGHT:.0%} long top-{bt.N_LONG} / w_short = {bt.LONG_WEIGHT:.0%} × β_long/β_short "
+        f"(Vasicek-adj, {bt.BETA_WINDOW}m trailing)  |  "
+        f"Monthly rebalancing, ±{bt.SECTOR_TOL:.0%} sector neutrality, beta-neutral"
     )
 
     long_df  = snapshot[snapshot["Book"] == "Long"].copy()
