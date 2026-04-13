@@ -717,31 +717,37 @@ def compute_portfolio_returns(merged, weights_dict):
 def compute_metrics(r, name, ff_df, is_long_short=False):
     r = r.dropna()
     n = len(r)
-    mu      = r.mean()
-    sigma   = r.std(ddof=1)
+
+    # Align rf early so Sharpe uses excess returns
+    df = pd.DataFrame({"ret": r}).reset_index()
+    df.columns = ["month", "ret"]
+    df = df.merge(ff_df, on="month", how="inner")
+    excess  = df["ret"] - df["rf"]
+
+    mu      = df["ret"].mean()
+    sigma   = df["ret"].std(ddof=1)
     ann_ret = mu * 12
     ann_vol = sigma * np.sqrt(12)
-    sharpe  = ann_ret / ann_vol if ann_vol > 0 else np.nan
+    exc_mu    = excess.mean()
+    exc_sigma = excess.std(ddof=1)
+    sharpe  = (exc_mu * 12) / (exc_sigma * np.sqrt(12)) if exc_sigma > 0 else np.nan
     se_mu   = sigma / np.sqrt(n)
     t_mu    = mu / se_mu if se_mu > 0 else np.nan
     p_mu    = 2 * (1 - scipy_stats.t.cdf(abs(t_mu), df=n-1))
     se_ann  = se_mu * 12
     ci_lo   = ann_ret - 1.96 * se_ann
     ci_hi   = ann_ret + 1.96 * se_ann
-    geo     = (1 + r).prod() ** (12 / n) - 1
-    cum     = (1 + r).cumprod()
+    geo     = (1 + df["ret"]).prod() ** (12 / n) - 1
+    cum     = (1 + df["ret"]).cumprod()
     max_dd  = ((cum - cum.cummax()) / cum.cummax()).min()
-    skew    = float(scipy_stats.skew(r))
-    kurt    = float(scipy_stats.kurtosis(r))
+    skew    = float(scipy_stats.skew(df["ret"]))
+    kurt    = float(scipy_stats.kurtosis(df["ret"]))
     calmar  = ann_ret / abs(max_dd) if max_dd != 0 else np.nan
-    down_r  = np.minimum(r.values, 0)
+    down_r  = np.minimum(df["ret"].values, 0)
     sortino = ann_ret / (np.sqrt((down_r**2).mean()) * np.sqrt(12)) if (down_r**2).mean() > 0 else np.nan
-    pct_pos = float((r > 0).mean() * 100)
-    worst   = float(r.min())
+    pct_pos = float((df["ret"] > 0).mean() * 100)
+    worst   = float(df["ret"].min())
 
-    df = pd.DataFrame({"ret": r}).reset_index()
-    df.columns = ["month", "ret"]
-    df = df.merge(ff_df, on="month", how="inner")
     df["y"] = df["ret"] if is_long_short else df["ret"] - df["rf"]
     X = sm.add_constant(df["mktrf"])
     capm = sm.OLS(df["y"], X).fit(cov_type="HAC", cov_kwds={"maxlags": 6})
