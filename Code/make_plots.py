@@ -83,6 +83,83 @@ def plot_cumulative_returns(results):
     _save(fig, "cumulative_returns.png")
 
 
+def plot_long_vs_short(results):
+    """
+    Isolates the short leg's contribution to the strategy.
+
+    Top row: cumulative wealth for (1) unlevered long book (1x), (2) levered long only (w_long x),
+             (3) full market-neutral strategy, and (4) S&P 500.
+             The gap between (2) and (3) IS the short leg's contribution.
+
+    Bottom row: short leg cumulative P&L per dollar of capital
+                = (1 + w_short * short_leg_return).cumprod(), starting at 1.
+                Above 1 → short leg is adding value; below 1 → it is a drag.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+
+    for col_idx, (pfx, title) in enumerate([("ew", "Equal-Weighted"), ("vw", "Value-Weighted")]):
+        ax_top = axes[0][col_idx]
+        ax_bot = axes[1][col_idx]
+
+        r_long    = results[f"{pfx}_long"].dropna()
+        r_neutral = results[f"{pfx}_mkt_neutral"].dropna()
+        idx       = r_long.index.intersection(r_neutral.index)
+
+        w_l = results["w_long"].reindex(idx).fillna(LONG_WEIGHT)
+        w_s = results["w_short"].reindex(idx).fillna(LONG_WEIGHT)
+
+        # ew_short is already stored as -r_short (P&L sign), so short contribution = w_s * ew_short
+        r_short_pl = results[f"{pfx}_short"].reindex(idx)  # -r_short
+        short_contribution = w_s * r_short_pl              # w_s * (-r_short) = short leg P&L
+
+        levered_long = w_l * r_long.reindex(idx)
+
+        # ── Top panel: cumulative wealth ──────────────────────────────────────
+        for ret, color, lbl, ls in [
+            (r_long.reindex(idx),   "steelblue",  f"Unlevered Long Only (1×)",         "-"),
+            (levered_long,          "royalblue",  f"Levered Long Only ({LONG_WEIGHT:.2g}×)", "--"),
+            (r_neutral.reindex(idx),"black",       "Market Neutral Strategy",           "-"),
+        ]:
+            cum = (1 + ret).cumprod()
+            ax_top.plot(cum.index, cum.values, color=color, linewidth=1.3,
+                        linestyle=ls, label=lbl)
+
+        sp = (1 + results["sp500"].dropna()).cumprod().reindex(idx)
+        ax_top.plot(sp.index, sp.values, color="darkorange", linewidth=1.2,
+                    linestyle="--", label="S&P 500", alpha=0.85)
+
+        ax_top.set_yscale("log")
+        ax_top.set_title(f"Levered Long vs Strategy ({title})", fontsize=10)
+        ax_top.set_ylabel("Cumulative Return (log scale, $1 of capital)")
+        ax_top.axhline(1, color="gray", linestyle=":", linewidth=0.6)
+        ax_top.legend(fontsize=9)
+        ax_top.grid(True, alpha=0.3, which="both")
+
+        # ── Bottom panel: short leg cumulative P&L ────────────────────────────
+        cum_short = (1 + short_contribution).cumprod()
+        ax_bot.plot(cum_short.index, cum_short.values,
+                    color="firebrick", linewidth=1.3, label="Short Leg P&L")
+        ax_bot.axhline(1, color="gray", linestyle="--", linewidth=0.8)
+        ax_bot.fill_between(cum_short.index, cum_short.values, 1,
+                            where=cum_short.values >= 1,
+                            color="firebrick", alpha=0.15, label="Adding value")
+        ax_bot.fill_between(cum_short.index, cum_short.values, 1,
+                            where=cum_short.values < 1,
+                            color="firebrick", alpha=0.35, label="Drag on strategy")
+        ax_bot.set_title(f"Short Leg Cumulative P&L per $1 of Capital ({title})", fontsize=10)
+        ax_bot.set_ylabel("Cumulative Short P&L ($1 of capital)")
+        ax_bot.legend(fontsize=9)
+        ax_bot.grid(True, alpha=0.3)
+
+    fig.suptitle(
+        f"{STRATEGY} — Decomposing the Short Leg's Contribution\n"
+        f"Gap between Levered Long and Strategy = short leg drag/benefit",
+        fontsize=11,
+    )
+    fig.tight_layout()
+    _save(fig, "long_vs_short.png")
+
+
 def plot_rolling_volatility(results, window=12):
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     series = [
@@ -404,6 +481,7 @@ def main():
 
     print("Generating return-series plots ...")
     plot_cumulative_returns(results)
+    plot_long_vs_short(results)
     plot_rolling_volatility(results)
     plot_return_distributions(results)
     plot_drawdown(results)

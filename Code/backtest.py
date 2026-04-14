@@ -58,7 +58,7 @@ REBALANCE_MONTHS = 1     # rebalance frequency in months
 BETA_WINDOW     = 12   # months of trailing returns used to estimate beta
 BETA_MIN_OBS    = 8    # minimum non-NaN observations required for a beta estimate
 LONG_WEIGHT     = 1.75 # long book gross weight; short weight is solved for target beta
-TARGET_BETA     = 0.30 # target net portfolio beta (0.0 = market neutral)
+TARGET_BETA     = 0.40 # target net portfolio beta (0.0 = market neutral)
 
 
 # =====================================================================
@@ -330,24 +330,25 @@ def build_signal(comp, include_components=False):
     # ---- Short Factor 5: Accruals (high accruals = poor earnings quality) ----
     comp["accruals"] = (comp["ib_ttm"] - comp["oancf_ttm"]) / comp["at_avg4"].replace(0, np.nan)
 
-    # ---- Short Factor 6: Valuation (high P/E = overvalued, more vulnerable) ----
-    comp["_eps_ttm"] = comp["nopat_ttm"] / comp["cshoq"].replace(0, np.nan)
-    comp["_pe_short"] = np.where(
-        comp["_eps_ttm"] > 0,
-        comp["prccq"].abs() / comp["_eps_ttm"],
+    # ---- Short Factor 6: Valuation (high EV/EBIT = overvalued, more vulnerable) ----
+    # EV/EBIT avoids the leverage distortion of P/NOPAT: levered companies don't look
+    # artificially cheap just because equity price is low. Only valid when EBIT > 0.
+    comp["ev_ebit"] = np.where(
+        comp["oiadpq_ttm"] > 0,
+        comp["ev"] / comp["oiadpq_ttm"],
         np.nan,
     )
 
     # ---- Winsorise at 1/99 pct ----
     for col in ["sh_yield", "gross_prof", "roic",
                 "nef", "leverage", "f_score",
-                "fcf_yield", "accruals", "_pe_short"]:
+                "fcf_yield", "accruals", "ev_ebit"]:
         lo, hi = comp[col].quantile(0.01), comp[col].quantile(0.99)
         comp[col] = comp[col].clip(lo, hi)
 
     comp.dropna(subset=["sh_yield", "gross_prof", "roic"], inplace=True)
     # Short factors: allow NaN (stocks without short signal are simply ineligible for short book)
-    for col in ["nef", "leverage", "f_score", "fcf_yield", "accruals", "_pe_short"]:
+    for col in ["nef", "leverage", "f_score", "fcf_yield", "accruals", "ev_ebit"]:
         comp[col] = comp[col].where(comp[col].notna(), other=np.nan)
 
     # ---- Cross-sectional z-score each quarter (long factors) ----
@@ -358,7 +359,7 @@ def build_signal(comp, include_components=False):
     comp[SIGNAL_COL] = (comp["sh_yield_z"] + comp["gross_prof_z"] + comp["roic_z"]) / 3.0
 
     # ---- Cross-sectional z-score each quarter (short factors) ----
-    for col in ["nef", "leverage", "f_score", "fcf_yield", "accruals", "_pe_short"]:
+    for col in ["nef", "leverage", "f_score", "fcf_yield", "accruals", "ev_ebit"]:
         grp = comp.groupby("datadate")[col]
         comp[f"{col}_z"] = (comp[col] - grp.transform("mean")) / grp.transform("std")
 
@@ -366,16 +367,15 @@ def build_signal(comp, include_components=False):
     # Weights informed by Empirical Research Partners Failure Model:
     #   - FCF yield (negated): paper's #1 factor — no cash flow is the strongest failure signal
     #   - Accruals: high accruals = earnings not backed by cash = quality red flag
-    #   - P/E (high): overvalued + bad fundamentals = especially vulnerable (paper Exhibit 13)
+    #   - EV/EBIT (high): overvalued vs operating earnings; EV avoids leverage distortion of P/E
     #   - nef_z: dilution/debt issuance = capital-hungry company
     #   - f_score_z (negated): low Piotroski = deteriorating fundamentals
     #   - leverage_z: financially fragile
     #   - gross_prof_z (negated): structurally poor business
-    # Momentum & volatility factors are added from CRSP in merge_and_form_portfolios()
     _short_z = pd.DataFrame({
         "fcf_yield_z_neg":  -comp["fcf_yield_z"] * 1.5,   # paper's top factor, heavy weight
         "accruals_z":        comp["accruals_z"],            # earnings quality
-        "pe_z":              comp["_pe_short_z"],           # overvaluation
+        "ev_ebit_z":         comp["ev_ebit_z"],             # overvaluation (EV/EBIT)
         "nef_z":             comp["nef_z"],                 # dilution/financing
         "f_score_z_neg":    -comp["f_score_z"],             # fundamentals quality
         "leverage_z":        comp["leverage_z"] * 0.5,     # less predictive per paper
@@ -402,7 +402,7 @@ def build_signal(comp, include_components=False):
         "sh_yield_z", "gross_prof_z", "roic_z",
         "pe_ratio",
         "nef", "leverage", "f_score", "fcf_yield", "accruals",
-        "nef_z", "leverage_z", "f_score_z", "fcf_yield_z", "accruals_z", "_pe_short_z",
+        "nef_z", "leverage_z", "f_score_z", "fcf_yield_z", "accruals_z", "ev_ebit_z",
     ]
     out_cols = base_cols + extra_cols if include_components else base_cols
     out = comp[out_cols].copy()
