@@ -18,7 +18,9 @@
       "Bash('/c/Program Files/GitHub CLI/gh.exe' api repos/Blake-Stanley/Quality-Value-Backtest/git/refs/heads/short-mid-caps -X DELETE)",
       "Bash(cp:*)",
       "Bash(cmd:*)",
-      "Bash(python run_all.py)"
+      "Bash(python run_all.py)",
+      "Bash(python Code/make_plots.py)",
+      "Bash(python -c \"import Code.backtest as b; print\\([x for x in dir\\(b\\) if not x.startswith\\('_'\\)]\\)\")"
     ]
   }
 }
