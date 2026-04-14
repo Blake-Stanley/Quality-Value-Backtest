@@ -37,10 +37,10 @@ from backtest import LONG_WEIGHT, N_LONG, N_SHORT, STRATEGY_NAME as STRATEGY, DA
 # ── slide theme ───────────────────────────────────────────────────────────────
 SLIDE_BG  = "#bedeff"   # light blue — matches slide background
 AXES_BG   = "#EEF5FB"   # slightly lighter blue-white for axes interior
-NAVY      = "#1E3A5F"   # dark navy — all text, ticks, labels
+NAVY      = "#062044"   # dark navy — all text, ticks, labels
 C_LONG    = "#1A5999"   # deep blue — long book
 C_SHORT   = "#B22222"   # dark red — short book
-C_STRAT   = "#1E3A5F"   # navy — strategy line
+C_STRAT   = "#042550"   # navy — strategy line
 C_SP500   = "#D4812A"   # warm orange — S&P 500
 C_PURPLE  = "#7030A0"   # purple — misc (beta ratio)
 C_LEVLONG = "#4472C4"   # cornflower blue — levered long
@@ -113,8 +113,8 @@ def plot_cumulative_returns(results, ew_only=False):
     all_axes = [p[0] for p in panels]
     for ax, pfx, title in panels:
         for col, color, lbl, invert in [
-            (f"{pfx}_long",        C_LONG,  f"Long Book (top {N_LONG})",   False),
-            (f"{pfx}_short",       C_SHORT, f"Short Book (top {N_SHORT})", True),
+            (f"{pfx}_long",        C_LONG,  "Long Book",   False),
+            (f"{pfx}_short",       C_SHORT, "Short Book",  True),
             (f"{pfx}_mkt_neutral", C_STRAT, "Market Neutral Strategy",     False),
         ]:
             ret = results[col].dropna()
@@ -216,8 +216,8 @@ def plot_rolling_volatility(results, window=12, ew_only=False):
 
     all_axes = [p[0] for p in panels]
     series = [
-        ("long",        C_LONG,  f"Long Book (top {N_LONG})"),
-        ("short",       C_SHORT, f"Short Book (top {N_SHORT})"),
+        ("long",        C_LONG,  "Long Book"),
+        ("short",       C_SHORT, "Short Book"),
         ("mkt_neutral", C_STRAT, "Market Neutral Strategy"),
     ]
     for ax, pfx, title in panels:
@@ -243,19 +243,19 @@ def plot_return_distributions(results, ew_only=False):
     if ew_only:
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         dist_series = [
-            ("ew_mkt_neutral", "Market Neutral (EW)",          C_STRAT),
-            ("ew_long",        f"Long Book (top {N_LONG})",    C_LONG),
-            ("ew_short",       f"Short Book (top {N_SHORT})",  C_SHORT),
+            ("ew_mkt_neutral", "Market Neutral (EW)", C_STRAT),
+            ("ew_long",        "Long Book (EW)",      C_LONG),
+            ("ew_short",       "Short Book (EW)",     C_SHORT),
         ]
     else:
         fig, axes = plt.subplots(2, 3, figsize=(16, 10))
         dist_series = [
-            ("ew_mkt_neutral", "Market Neutral (EW)",            C_STRAT),
-            ("ew_long",        f"Long Book EW (top {N_LONG})",   C_LONG),
-            ("ew_short",       f"Short Book EW (top {N_SHORT})", C_SHORT),
-            ("vw_mkt_neutral", "Market Neutral (VW)",            C_VW_STRAT),
-            ("vw_long",        f"Long Book VW (top {N_LONG})",   "#5B9BD5"),
-            ("vw_short",       f"Short Book VW (top {N_SHORT})", "#E06060"),
+            ("ew_mkt_neutral", "Market Neutral (EW)", C_STRAT),
+            ("ew_long",        "Long Book (EW)",       C_LONG),
+            ("ew_short",       "Short Book (EW)",      C_SHORT),
+            ("vw_mkt_neutral", "Market Neutral (VW)",  C_VW_STRAT),
+            ("vw_long",        "Long Book (VW)",        "#5B9BD5"),
+            ("vw_short",       "Short Book (VW)",       "#E06060"),
         ]
 
     all_axes = list(axes.flat)
@@ -296,8 +296,8 @@ def plot_drawdown(results, ew_only=False):
     all_axes = [p[0] for p in panels]
     series = [
         ("mkt_neutral", C_STRAT, "Market Neutral Strategy"),
-        ("long",        C_LONG,  f"Long Book (top {N_LONG})"),
-        ("short",       C_SHORT, f"Short Book (top {N_SHORT})"),
+        ("long",        C_LONG,  "Long Book"),
+        ("short",       C_SHORT, "Short Book"),
     ]
     for ax, pfx, title in panels:
         for suffix, color, lbl in series:
@@ -329,8 +329,8 @@ def plot_rolling_sharpe(results, window=24, ew_only=False):
     all_axes = [p[0] for p in panels]
     series = [
         ("mkt_neutral", C_STRAT, "Market Neutral Strategy"),
-        ("long",        C_LONG,  f"Long Book (top {N_LONG})"),
-        ("short",       C_SHORT, f"Short Book (top {N_SHORT})"),
+        ("long",        C_LONG,  "Long Book"),
+        ("short",       C_SHORT, "Short Book"),
     ]
     for ax, pfx, title in panels:
         for suffix, color, lbl in series:
