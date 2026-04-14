@@ -67,16 +67,18 @@ from the fiscal quarter end date to avoid look-ahead bias.
 
 ## How to Run
 ```bash
-python run_all.py                  # full pipeline: backtest → table → holdings snapshot
+python run_all.py                  # full pipeline: backtest → table → charts → holdings snapshot
+python Code/make_plots.py          # regenerate all charts only (uses cache if available)
 python Code/export_holdings.py     # holdings snapshot only (uses cache if available)
 python Code/make_table.py          # regenerate styled Excel table from existing metrics CSV
 ```
 
 ## Key Files
 - `Code/backtest.py` — main engine; all strategy parameters defined as constants at the top
+- `Code/make_plots.py` — generates all charts to `Output/Charts/`
 - `Code/export_holdings.py` — pulls latest long/short holdings with factor detail into Excel
 - `Code/make_table.py` — formats `backtest_metrics.csv` into a styled Excel table
-- `run_all.py` — runs all three scripts in order (run from repo root)
+- `run_all.py` — runs all four scripts in order (run from repo root)
 
 ## Cache Behavior
 `backtest.py` writes two files to `Cache/` after each run:
@@ -91,9 +93,23 @@ python Code/make_table.py          # regenerate styled Excel table from existing
 | `backtest_returns.csv` | Monthly returns for long, short, mkt neutral strategy (EW + VW), plus w_long/w_short |
 | `backtest_metrics.csv` | Performance metrics table (input to make_table.py) |
 | `backtest_metrics.txt` | Same metrics as plain text |
-| `backtest.png` | Cumulative return chart (log scale, EW + VW side by side) |
 | `Backtest_Table.xlsx` | Styled Excel metrics table |
 | `holdings_snapshot.xlsx` | Current long/short holdings with factor scores |
+
+### Charts (`Output/Charts/`)
+| File | Description |
+|------|-------------|
+| `cumulative_returns.png` | Cumulative return (log scale) for long book, short book, strategy, S&P 500 — EW + VW |
+| `long_vs_short.png` | Decomposes short leg contribution: unlevered long vs levered long vs full strategy; short leg P&L over time |
+| `annual_returns.png` | Year-by-year bar chart: EW strategy, VW strategy, S&P 500 |
+| `drawdown.png` | Drawdown from peak for strategy, long book, short book — EW + VW |
+| `rolling_volatility.png` | 12-month rolling annualised volatility — EW + VW |
+| `rolling_sharpe.png` | 24-month rolling Sharpe ratio — EW + VW |
+| `return_distributions.png` | Monthly return histograms for all six series |
+| `portfolio_weights.png` | w_long and w_short over time; implied beta ratio |
+| `factor_ic.png` | Monthly Spearman IC of long and short signals vs next-month returns |
+| `factor_ic_decay.png` | Mean IC at forward lags 1–6 months (signal half-life) |
+| `sector_active_weights.png` | Long − short sector active weights over time |
 
 ## Config Constants (backtest.py)
 | Constant | Value | Meaning |

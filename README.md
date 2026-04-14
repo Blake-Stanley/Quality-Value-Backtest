@@ -40,7 +40,8 @@ lagged 4 months from fiscal quarter end to avoid look-ahead bias.
 ## How to Run
 
 ```bash
-python run_all.py                  # full pipeline
+python run_all.py                  # full pipeline: backtest → table → charts → holdings snapshot
+python Code/make_plots.py          # regenerate all charts (uses cache if available)
 python Code/export_holdings.py     # holdings snapshot only (uses cache if available)
 python Code/make_table.py          # regenerate styled Excel table
 ```
@@ -48,11 +49,20 @@ python Code/make_table.py          # regenerate styled Excel table
 ## Structure
 
 ```
-run_all.py  Entry point -- runs full pipeline from repo root
-Code/       Python scripts (backtest engine, holdings export, table/chart generators)
-Data/       Source data (Compustat, CRSP, Fama-French) -- not tracked in git
-Cache/      Intermediate parquet files -- auto-generated, safe to delete
-Output/     Generated charts, CSVs, Excel files
+run_all.py          Entry point -- runs full pipeline from repo root
+Code/
+  backtest.py       Main engine; all strategy parameters as constants at the top
+  make_plots.py     Generates all charts to Output/Charts/
+  make_table.py     Formats backtest_metrics.csv into styled Excel table
+  export_holdings.py  Holdings snapshot with factor scores
+Data/               Source data (Compustat, CRSP, Fama-French) -- not tracked in git
+Cache/              Intermediate parquet files -- auto-generated, safe to delete
+Output/
+  Charts/           All PNG charts (cumulative returns, long_vs_short, drawdown, etc.)
+  backtest_returns.csv
+  backtest_metrics.csv
+  Backtest_Table.xlsx
+  holdings_snapshot.xlsx
 ```
 
 ## Requirements
