@@ -16,7 +16,7 @@ Never include a "Co-Authored-By: Claude" line in commit messages. Commit as Blak
 A long-short equity strategy backtested against a Russell 1000 proxy universe.
 The fund takes 175% long exposure in high-quality/value stocks; short exposure targets
 financially fragile companies. The short weight is solved each month to achieve a target
-net portfolio beta of 0.30 (slight net long bias).
+net portfolio beta of 0.40 (slight net long bias).
 
 ### Long Signal
 Equal-weight composite z-score of three quality/value factors, computed cross-sectionally each quarter:
@@ -29,7 +29,7 @@ Weighted composite z-score of seven fundamental failure factors (inspired by Emp
 Partners Failure Model), computed cross-sectionally each quarter:
 1. **FCF Yield** (negated, 1.5x weight) — TTM (operating CF - capex) / enterprise value
 2. **Accruals** — TTM (net income - operating CF) / avg assets
-3. **P/E Ratio** — price / TTM NOPAT per share (overvaluation)
+3. **EV/EBIT Ratio** — enterprise value / TTM EBIT (overvaluation)
 4. **Net External Financing** — TTM (equity issuance - buybacks + debt change) / assets
 5. **Piotroski F-Score** (negated) — 9-criteria fundamental quality score (0-9)
 6. **Leverage** (0.5x weight) — (LT debt + ST debt) / total assets
@@ -45,11 +45,11 @@ from the fiscal quarter end date to avoid look-ahead bias.
 
 ### Portfolio Construction
 - **Long book**: top 100 stocks by long composite z-score (175% gross weight, equal-weighted)
-- **Short book**: top 100 stocks by short composite z-score, equal-weighted; gross weight `w_short` is solved each rebalance month for target beta: `w_short = (1.75 × β_long - 0.30) / β_short`
+- **Short book**: top 100 stocks by short composite z-score, equal-weighted; gross weight `w_short` is solved each rebalance month for target beta: `w_short = (1.75 × β_long - 0.40) / β_short`
 - **Beta estimation**: trailing 12-month OLS beta vs FF market factor, Vasicek-adjusted (2/3 raw + 1/3 × 1.0), minimum 8 months of data required; implemented in `compute_trailing_betas()` and `compute_market_neutral_weights()`
 - **Sector neutrality**: long and short books each stay within ±5pp of Russell 1000 proxy sector weights — **implemented** via `_sector_neutral_select()` in `backtest.py`; sectors mapped from SIC codes using `_SECTOR_BREAKS`
 - **Rebalancing**: monthly
-- **Return**: R = w_L × R_long − w_S × R_short, where w_L = 1.75 and w_S varies to achieve 0.30 net beta
+- **Return**: R = w_L × R_long − w_S × R_short, where w_L = 1.75 and w_S varies to achieve 0.40 net beta
 
 ### Data Sources
 - **Compustat** (`compustat_with_permno.parquet`) — quarterly fundamentals, PERMNO-matched
@@ -125,7 +125,7 @@ python Code/make_table.py          # regenerate styled Excel table from existing
 | `BETA_WINDOW` | 12 | Trailing months for beta estimation |
 | `BETA_MIN_OBS` | 8 | Minimum observations required for beta estimate |
 | `LONG_WEIGHT` | 1.75 | Fixed long gross weight; short weight solved for target beta |
-| `TARGET_BETA` | 0.30 | Target net portfolio beta (0.0 = market neutral) |
+| `TARGET_BETA` | 0.40 | Target net portfolio beta (0.0 = market neutral) |
 
 ## Git Worktree Workflow
 

@@ -347,7 +347,7 @@ def plot_factor_ic(merged):
 
     for ax, ic, color, title in [
         (axes[0], ic_long,  "steelblue", "Long Signal — Composite Z-Score (Yield + GP + ROIC)"),
-        (axes[1], ic_short, "firebrick", "Short Signal — Composite Z-Score (NEF + Leverage + F-Score + GP)"),
+        (axes[1], ic_short, "firebrick", "Short Signal — Composite Z-Score (FCF + Accruals + EV/EBIT + NEF + F-Score + Leverage + GP)"),
     ]:
         ic_clean = ic.dropna()
         ax.bar(ic_clean.index, ic_clean.values, color=color, alpha=0.4, width=25, label="Monthly IC")
@@ -398,7 +398,7 @@ def plot_factor_decay(merged):
     ax.plot(list(lags), long_ics,  "o-", color="steelblue", linewidth=1.5,
             markersize=7, label="Long signal (Yield + GP + ROIC)")
     ax.plot(list(lags), short_ics, "s-", color="firebrick", linewidth=1.5,
-            markersize=7, label="Short signal (NEF + Lev + F-Score + GP)")
+            markersize=7, label="Short signal (FCF + Accruals + EV/EBIT + NEF + Lev + F-Score + GP)")
     ax.axhline(0, color="gray", linestyle="--", linewidth=0.7)
     ax.set_xlabel("Forward Lag (months)")
     ax.set_ylabel("Mean Spearman IC")

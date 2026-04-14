@@ -8,7 +8,7 @@ A long-short equity strategy backtested against a Russell 1000 proxy universe.
 Takes 175% long exposure in high-quality/value stocks; short exposure targets
 stocks exhibiting financial fragility (low FCF, high accruals, overvaluation,
 dilution, deteriorating fundamentals). The short weight is solved each month to
-achieve a target net portfolio beta of 0.30.
+achieve a target net portfolio beta of 0.40.
 
 ### Long Signal
 Equal-weight composite z-score of three quality/value factors:
@@ -20,7 +20,7 @@ Equal-weight composite z-score of three quality/value factors:
 Weighted composite z-score of seven fundamental failure factors:
 - **FCF Yield** (negated, 1.5x weight) — TTM (operating CF - capex) / enterprise value
 - **Accruals** — TTM (net income - operating CF) / avg assets
-- **P/E Ratio** — price / TTM NOPAT per share (overvaluation)
+- **EV/EBIT Ratio** — enterprise value / TTM EBIT (overvaluation)
 - **Net External Financing** — TTM (equity issuance - buybacks + debt change) / assets
 - **Piotroski F-Score** (negated) — 9-criteria fundamental quality score
 - **Leverage** (0.5x weight) — (LT debt + ST debt) / total assets
@@ -32,7 +32,7 @@ lagged 4 months from fiscal quarter end to avoid look-ahead bias.
 ### Portfolio Construction
 - **Universe**: Top 1000 US common stocks by market cap, SHRCD 10/11, price > $3
 - **Long book**: Top 100 by long composite (175% gross, equal-weighted)
-- **Short book**: Top 100 by short composite (weight solved for 0.30 target beta)
+- **Short book**: Top 100 by short composite (weight solved for 0.40 target beta)
 - **Beta estimation**: 12-month trailing Vasicek-adjusted betas
 - **Sector neutrality**: +/-5pp vs Russell 1000 proxy sector weights
 - **Rebalancing**: Monthly

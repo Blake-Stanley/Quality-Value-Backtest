@@ -8,7 +8,7 @@ Long signal  : Equal-weight composite z-score of:
 Short signal : Weighted composite z-score (high = bad company = short candidate):
                  1. FCF Yield (negated, 1.5x wt) = TTM (operating CF - capex) / enterprise value
                  2. Accruals = TTM (net income - operating CF) / avg assets
-                 3. P/E Ratio = price / TTM NOPAT per share (overvaluation)
+                 3. EV/EBIT Ratio = enterprise value / TTM EBIT (overvaluation)
                  4. Net External Financing = TTM (stock issuance - buybacks + debt issuance) / assets
                  5. Piotroski F-Score (negated) = 9-criteria fundamental quality score (0-9)
                  6. Leverage (0.5x wt) = (LT debt + ST debt) / total assets
@@ -813,7 +813,7 @@ def output_results(results, metrics):
               f"Universe: top-{N_UNIVERSE} by mktcap (Russell 1000 proxy), SHRCD 10/11, "
               f"lagged |PRC| > ${MIN_PRICE}   |   Rebalancing: monthly\n"
               f"Long top-{N_LONG} from top-{N_UNIVERSE} (Yield+GP+ROIC) at {LONG_WEIGHT:.0%} gross / "
-              f"Short top-{N_SHORT} from top-{N_UNIVERSE} non-long (NEF+Leverage+F-Score+GP) "
+              f"Short top-{N_SHORT} from top-{N_UNIVERSE} non-long (FCF+Accruals+EV/EBIT+NEF+F-Score+Leverage+GP) "
               f"at w_short = {LONG_WEIGHT:.0%} * beta_long / beta_short (Vasicek-adj, {BETA_WINDOW}m trailing), "
               f"equal-weight, +/-{SECTOR_TOL:.0%} sector neutrality\n{sep}")
 
