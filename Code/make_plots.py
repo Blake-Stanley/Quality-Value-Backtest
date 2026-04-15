@@ -511,6 +511,99 @@ def plot_factor_decay(merged, ew_only=False):
     _save(fig, "factor_ic_decay.png", EW_DIR if ew_only else None)
 
 
+def plot_rolling_5yr_return(results, window=60, ew_only=False):
+    """Rolling 5-year annualised return for the L/S strategy vs S&P 500."""
+    def _roll_ann(ret, w):
+        """Compound w monthly returns then annualise to a yearly figure."""
+        return ret.rolling(w, min_periods=w).apply(
+            lambda x: (1 + x).prod() ** (12 / w) - 1, raw=True
+        )
+
+    if ew_only:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        panels = [(ax, "ew", "Equal-Weighted")]
+    else:
+        fig, arr = plt.subplots(1, 2, figsize=(14, 5))
+        panels = [(arr[0], "ew", "Equal-Weighted"), (arr[1], "vw", "Value-Weighted")]
+
+    all_axes = [p[0] for p in panels]
+    for ax, pfx, title in panels:
+        strat = _roll_ann(results[f"{pfx}_mkt_neutral"].dropna(), window)
+        sp    = _roll_ann(results["sp500"].dropna(), window)
+        idx   = strat.index.union(sp.index)
+        strat = strat.reindex(idx)
+        sp    = sp.reindex(idx)
+
+        ax.plot(strat.index, strat.values, color=C_STRAT, linewidth=1.8,
+                label="Market Neutral Strategy")
+        ax.plot(sp.index, sp.values, color=C_SP500, linewidth=1.6,
+                linestyle="--", label="S&P 500", alpha=0.9)
+        ax.axhline(0, color=NAVY, linewidth=0.8, linestyle="--", alpha=0.4)
+        _pct_fmt(ax)
+        ax.set_title(f"{STRATEGY}\nRolling 5-Year Annualised Return ({title})", fontsize=11)
+        ax.set_ylabel("Annualised Return (rolling 5yr)")
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    _apply_theme(fig, all_axes)
+    fig.tight_layout(pad=2.0)
+    _save(fig, "rolling_5yr_return.png", EW_DIR if ew_only else None)
+
+
+def plot_annual_excess_returns(results, ew_only=False):
+    """Year-by-year excess return of the L/S strategy over S&P 500."""
+    df = results[["ew_mkt_neutral", "vw_mkt_neutral", "sp500"]].copy()
+    df.index = pd.to_datetime(df.index)
+
+    # Require at least 10 months of non-NaN strategy data per year to avoid
+    # partial/startup years where prod() of NaN → 0 and inflates excess returns.
+    valid_years = (
+        df["ew_mkt_neutral"]
+        .groupby(df.index.year)
+        .apply(lambda x: x.notna().sum())
+    )
+    valid_years = valid_years[valid_years >= 10].index
+
+    annual = (
+        df.groupby(df.index.year)
+        .apply(lambda x: (1 + x).prod(min_count=1) - 1)
+    )
+    annual = annual.loc[annual.index.isin(valid_years)].dropna(how="all")
+
+    annual["ew_excess"] = annual["ew_mkt_neutral"] - annual["sp500"]
+    annual["vw_excess"] = annual["vw_mkt_neutral"] - annual["sp500"]
+
+    x = np.arange(len(annual))
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    if ew_only:
+        width = 0.55
+        colors = [C_STRAT if v >= 0 else C_SHORT for v in annual["ew_excess"]]
+        ax.bar(x, annual["ew_excess"], width, color=colors, alpha=0.85,
+               label="Market Neutral (EW) vs S&P 500")
+    else:
+        width = 0.38
+        ew_colors = [C_STRAT   if v >= 0 else C_SHORT for v in annual["ew_excess"]]
+        vw_colors = [C_VW_STRAT if v >= 0 else "#E06060" for v in annual["vw_excess"]]
+        ax.bar(x - width / 2, annual["ew_excess"], width, color=ew_colors, alpha=0.85,
+               label="Market Neutral (EW) vs S&P 500")
+        ax.bar(x + width / 2, annual["vw_excess"], width, color=vw_colors, alpha=0.75,
+               label="Market Neutral (VW) vs S&P 500")
+
+    ax.axhline(0, color=NAVY, linewidth=1.0)
+    _pct_fmt(ax)
+    ax.set_xticks(x)
+    ax.set_xticklabels(annual.index.astype(str), rotation=45, ha="right")
+    ax.set_title(f"{STRATEGY} — Annual Excess Return vs S&P 500", fontsize=12)
+    ax.set_ylabel("Annual Excess Return (Strategy − S&P 500)")
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    _apply_theme(fig, [ax])
+    fig.tight_layout(pad=2.0)
+    _save(fig, "annual_excess_returns.png", EW_DIR if ew_only else None)
+
+
 def plot_trade_return_distributions(merged, ew_only=False):
     """
     Distribution of individual trade (stock-month) returns for long and short books.
@@ -729,6 +822,8 @@ def main():
     plot_annual_returns(results)
     plot_weight_over_time(results)
     plot_rolling_beta(results, ff)
+    plot_rolling_5yr_return(results)
+    plot_annual_excess_returns(results)
 
     print("Generating EW-only plots for presentation slides ...")
     plot_cumulative_returns(results, ew_only=True)
@@ -740,6 +835,8 @@ def main():
     plot_annual_returns(results, ew_only=True)
     plot_weight_over_time(results, ew_only=True)
     plot_rolling_beta(results, ff, ew_only=True)
+    plot_rolling_5yr_return(results, ew_only=True)
+    plot_annual_excess_returns(results, ew_only=True)
 
     merged_path = CACHE_DIR / "merged.parquet"
     if merged_path.exists():
