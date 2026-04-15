@@ -3,7 +3,7 @@
 MARKET NEUTRAL LONG-SHORT EQUITY ETF BACKTEST
 Signal: composite_z   |   Lag: datadate + 4 months
 Universe: top-1000 by mktcap (Russell 1000 proxy), SHRCD 10/11, lagged |PRC| > $3   |   Rebalancing: monthly
-Long top-100 from top-1000 (Yield+GP+ROIC) at 175% gross / Short top-100 from top-1000 non-long (NEF+Leverage+F-Score+GP) at w_short = 175% * beta_long / beta_short (Vasicek-adj, 12m trailing), equal-weight, +/-5% sector neutrality
+Long top-100 from top-1000 (Yield+GP+ROIC) at 175% gross / Short top-100 from top-1000 non-long (FCF+Accruals+EV/EBIT+NEF+F-Score+Leverage+GP) at w_short = 175% * beta_long / beta_short (Vasicek-adj, 12m trailing), equal-weight, +/-5% sector neutrality
 ====================================================================================================
 
 name                    Mkt Neutral (EW)                   EW Long                  EW Short          Mkt Neutral (VW)                   VW Long                  VW Short                   S&P 500

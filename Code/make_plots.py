@@ -511,6 +511,93 @@ def plot_factor_decay(merged, ew_only=False):
     _save(fig, "factor_ic_decay.png", EW_DIR if ew_only else None)
 
 
+def plot_trade_return_distributions(merged, ew_only=False):
+    """
+    Distribution of individual trade (stock-month) returns for long and short books.
+    Long trade return  =  RET  (you profit when the stock rises)
+    Short trade return = -RET  (you profit when the stock falls)
+    Chart 1: combined distribution of all trade returns
+    Chart 2: long and short distributions overlaid side-by-side
+    """
+    df = merged[merged["port"].isin(["long", "short"])].copy()
+    df = df.dropna(subset=["RET"])
+
+    long_ret  =  df.loc[df["port"] == "long",  "RET"].values
+    short_ret = -df.loc[df["port"] == "short", "RET"].values   # flip sign: P&L on short
+
+    all_ret = np.concatenate([long_ret, short_ret])
+
+    def _stats_text(arr):
+        return (f"N={len(arr):,}\nMean={np.mean(arr):.2%}\n"
+                f"Median={np.median(arr):.2%}\nStd={np.std(arr):.2%}\n"
+                f"Skew={pd.Series(arr).skew():.2f}\nKurt={pd.Series(arr).kurt():.2f}")
+
+    # ── Chart 1: Combined ────────────────────────────────────────────────────
+    fig1, ax1 = plt.subplots(figsize=(10, 6))
+
+    # use a common bin range driven by the 1/99 pct of the combined data
+    lo, hi = np.percentile(all_ret, [0.5, 99.5])
+    bins = np.linspace(lo, hi, 80)
+
+    ax1.hist(all_ret, bins=bins, color=C_STRAT, alpha=0.75,
+             edgecolor="white", linewidth=0.4, label="All trades (Long + Short)")
+    ax1.axvline(np.mean(all_ret), color=C_SP500, linewidth=1.6, linestyle="--",
+                label=f"Mean {np.mean(all_ret):.2%}")
+    ax1.axvline(0, color=NAVY, linewidth=1.0, linestyle=":", alpha=0.6)
+    _pct_fmt(ax1, axis="x")
+    ax1.set_xlabel("Trade Return (monthly, P&L perspective)")
+    ax1.set_ylabel("Frequency")
+    ax1.set_title(f"{STRATEGY}\nIndividual Trade Return Distribution — Combined (Long + Short)",
+                  fontsize=11)
+    ax1.legend(fontsize=9)
+    ax1.grid(True, alpha=0.3)
+    ax1.text(0.97, 0.97, _stats_text(all_ret),
+             transform=ax1.transAxes, fontsize=8.5, va="top", ha="right",
+             bbox=dict(boxstyle="round,pad=0.4", fc=AXES_BG, ec=NAVY, alpha=0.88))
+
+    _apply_theme(fig1, [ax1])
+    fig1.tight_layout(pad=2.0)
+    _save(fig1, "trade_dist_combined.png", EW_DIR if ew_only else None)
+
+    # ── Chart 2: Long vs Short split ─────────────────────────────────────────
+    fig2, axes2 = plt.subplots(1, 2, figsize=(14, 6), sharey=False)
+    ax_l, ax_r = axes2
+
+    lo_l, hi_l = np.percentile(long_ret,  [0.5, 99.5])
+    lo_r, hi_r = np.percentile(short_ret, [0.5, 99.5])
+    bins_l = np.linspace(lo_l, hi_l, 70)
+    bins_r = np.linspace(lo_r, hi_r, 70)
+
+    for ax, arr, color, label, bins in [
+        (ax_l, long_ret,  C_LONG,  "Long Book",  bins_l),
+        (ax_r, short_ret, C_SHORT, "Short Book", bins_r),
+    ]:
+        ax.hist(arr, bins=bins, color=color, alpha=0.7,
+                edgecolor="white", linewidth=0.4, label=label)
+        ax.axvline(np.mean(arr), color=C_SP500, linewidth=1.6, linestyle="--",
+                   label=f"Mean {np.mean(arr):.2%}")
+        ax.axvline(np.median(arr), color=NAVY, linewidth=1.2, linestyle="-.",
+                   alpha=0.7, label=f"Median {np.median(arr):.2%}")
+        ax.axvline(0, color=NAVY, linewidth=0.9, linestyle=":", alpha=0.5)
+        _pct_fmt(ax, axis="x")
+        ax.set_xlabel("Trade Return (monthly, P&L perspective)")
+        ax.set_ylabel("Frequency")
+        book = "Long" if color == C_LONG else "Short"
+        ax.set_title(f"{book} Book — Individual Trade Returns\n"
+                     f"(+ve = made money on the position)", fontsize=10)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.text(0.97, 0.97, _stats_text(arr),
+                transform=ax.transAxes, fontsize=8.5, va="top", ha="right",
+                bbox=dict(boxstyle="round,pad=0.4", fc=AXES_BG, ec=NAVY, alpha=0.88))
+
+    fig2.suptitle(f"{STRATEGY} — Individual Trade Return Distributions by Book",
+                  fontsize=12, color=NAVY, fontweight="bold")
+    _apply_theme(fig2, list(axes2))
+    fig2.tight_layout(pad=2.0)
+    _save(fig2, "trade_dist_split.png", EW_DIR if ew_only else None)
+
+
 def plot_sector_heatmap(merged, ew_only=False):
     """Long-book vs short-book sector active weights over time."""
     df = merged[merged["port"].isin(["long", "short"])].copy()
@@ -664,11 +751,13 @@ def main():
         plot_factor_ic(merged)
         plot_factor_decay(merged)
         plot_sector_heatmap(merged)
+        plot_trade_return_distributions(merged)
 
         print("Generating EW signal/sector plots for presentation slides ...")
         plot_factor_ic(merged, ew_only=True)
         plot_factor_decay(merged, ew_only=True)
         plot_sector_heatmap(merged, ew_only=True)
+        plot_trade_return_distributions(merged, ew_only=True)
     else:
         print("  Cache/merged.parquet not found — skipping factor IC, decay, and sector plots.")
         print("  Run the full backtest first to generate the cache.")

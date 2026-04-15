@@ -3,6 +3,10 @@ Generate the latest long/short holdings snapshot for the market neutral strategy
 
 Exports a styled Excel workbook (three sheets: All Holdings, Long Book, Short Book)
 using the same visual style as make_table.py.
+
+Long book columns  : Shareholder Yield, Gross Profitability, ROIC (quality/value factors)
+Short book columns : FCF Yield, Accruals, EV/EBIT, Net Ext. Fin., F-Score, Leverage
+                     (failure-model factors inspired by Empirical Research Partners)
 """
 
 from pathlib import Path
@@ -28,26 +32,47 @@ MED_GREEN   = "548235"
 LIGHT_GREEN = "E2EFDA"
 ALT_GREEN   = "F0F7EE"
 DARK_RED    = "C00000"
+MED_RED     = "D9534F"
 LIGHT_RED   = "FCE4D6"
 ALT_RED     = "FEF2EE"
 
-# ── Column groups: (label, header_color, [column_names]) ──────────────────────
+# ── Long-signal factor column names ───────────────────────────────────────────
+_LONG_FACTOR_Z_COLS = ["Shareholder Yield Z", "Gross Profitability Z", "ROIC Z"]
+_LONG_RAW_COLS      = ["Shareholder Yield (TTM)", "Gross Profitability", "ROIC", "P/E (TTM)"]
+
+# ── Short-signal factor column names ──────────────────────────────────────────
+_SHORT_FACTOR_Z_COLS = ["FCF Yield Z", "Accruals Z", "EV/EBIT Z", "NEF Z", "F-Score Z", "Leverage Z"]
+_SHORT_RAW_COLS      = ["FCF Yield (TTM)", "Accruals", "Net Ext. Fin.", "F-Score", "Leverage"]
+
+# ── Column group definitions ───────────────────────────────────────────────────
+# All Holdings: shows both sets of factor z-scores (cross-book entries show "—")
 _ALL_GROUPS = [
-    ("POSITION",        DARK_BLUE,  ["Book", "Rank", "Book Weight"]),
-    ("IDENTITY",        MED_BLUE,   ["Ticker", "Company", "Sector", "PERMNO"]),
-    ("DATES",           "4472C4",   ["Rebalance Month", "Signal Month", "Financials Through"]),
-    ("COMPOSITE SCORE", DARK_GREEN, ["Composite Z"]),
-    ("FACTOR Z-SCORES", MED_GREEN,  ["Shareholder Yield Z", "Gross Profitability Z", "ROIC Z"]),
-    ("RAW FACTORS",     "70AD47",   ["Shareholder Yield (TTM)", "Gross Profitability", "ROIC", "P/E (TTM)"]),
+    ("POSITION",               DARK_BLUE,  ["Book", "Rank", "Book Weight"]),
+    ("IDENTITY",               MED_BLUE,   ["Ticker", "Company", "Sector", "PERMNO"]),
+    ("DATES",                  "4472C4",   ["Rebalance Month", "Signal Month", "Financials Through"]),
+    ("COMPOSITE SCORE",        DARK_GREEN, ["Composite Z"]),
+    ("LONG FACTORS (Z-SCORE)", MED_GREEN,  _LONG_FACTOR_Z_COLS),
+    ("SHORT FACTORS (Z-SCORE)", DARK_RED,  _SHORT_FACTOR_Z_COLS),
 ]
 
-_SINGLE_GROUPS = [
+# Long Book: quality/value factors with raw values
+_LONG_GROUPS = [
     ("POSITION",        DARK_BLUE,  ["Rank", "Book Weight"]),
     ("IDENTITY",        MED_BLUE,   ["Ticker", "Company", "Sector", "PERMNO"]),
     ("DATES",           "4472C4",   ["Rebalance Month", "Signal Month", "Financials Through"]),
     ("COMPOSITE SCORE", DARK_GREEN, ["Composite Z"]),
-    ("FACTOR Z-SCORES", MED_GREEN,  ["Shareholder Yield Z", "Gross Profitability Z", "ROIC Z"]),
-    ("RAW FACTORS",     "70AD47",   ["Shareholder Yield (TTM)", "Gross Profitability", "ROIC", "P/E (TTM)"]),
+    ("FACTOR Z-SCORES", MED_GREEN,  _LONG_FACTOR_Z_COLS),
+    ("RAW FACTORS",     "70AD47",   _LONG_RAW_COLS),
+]
+
+# Short Book: failure-model factors with raw values
+_SHORT_GROUPS = [
+    ("POSITION",               DARK_BLUE,  ["Rank", "Book Weight"]),
+    ("IDENTITY",               MED_BLUE,   ["Ticker", "Company", "Sector", "PERMNO"]),
+    ("DATES",                  "4472C4",   ["Rebalance Month", "Signal Month", "Financials Through"]),
+    ("COMPOSITE SCORE",        DARK_GREEN, ["Composite Z"]),
+    ("SHORT FACTOR Z-SCORES",  DARK_RED,   _SHORT_FACTOR_Z_COLS),
+    ("SHORT RAW FACTORS",      MED_RED,    _SHORT_RAW_COLS),
 ]
 
 _COL_WIDTHS = {
@@ -55,10 +80,29 @@ _COL_WIDTHS = {
     "Ticker": 8, "Company": 28, "Sector": 16, "PERMNO": 8,
     "Rebalance Month": 14, "Signal Month": 13, "Financials Through": 15,
     "Composite Z": 11,
+    # Long factor columns
     "Shareholder Yield Z": 15, "Gross Profitability Z": 17, "ROIC Z": 9,
-    "Shareholder Yield (TTM)": 17, "Gross Profitability": 17, "ROIC": 9,
-    "P/E (TTM)": 10,
+    "Shareholder Yield (TTM)": 17, "Gross Profitability": 17, "ROIC": 9, "P/E (TTM)": 10,
+    # Short factor z-score columns
+    "FCF Yield Z": 10, "Accruals Z": 10, "EV/EBIT Z": 10,
+    "NEF Z": 8, "F-Score Z": 10, "Leverage Z": 10,
+    # Short raw columns
+    "FCF Yield (TTM)": 14, "Accruals": 10, "Net Ext. Fin.": 13, "F-Score": 9, "Leverage": 10,
 }
+
+# Columns that should be formatted as percentages
+_PCT_COLS = {
+    "Shareholder Yield (TTM)", "Gross Profitability", "ROIC",
+    "FCF Yield (TTM)", "Accruals", "Net Ext. Fin.", "Leverage",
+    "Book Weight",
+}
+# Columns that should be formatted as rounded floats (z-scores etc.)
+_FLOAT2_COLS = {
+    "Composite Z",
+    "Shareholder Yield Z", "Gross Profitability Z", "ROIC Z",
+    "FCF Yield Z", "Accruals Z", "EV/EBIT Z", "NEF Z", "F-Score Z", "Leverage Z",
+}
+
 
 def _thick(): return Side(style="medium")
 def _hair():  return Side(style="hair")
@@ -73,14 +117,14 @@ def _fmt_val(col: str, val):
         is_nan = False
     if is_nan:
         return "—"
-    if col == "Book Weight":
+    if col in _PCT_COLS:
         return f"{float(val):.2%}"
+    if col in _FLOAT2_COLS:
+        return round(float(val), 2)
     if col == "Rank":
         return int(val)
-    if col in ("Composite Z", "Shareholder Yield Z", "Gross Profitability Z", "ROIC Z"):
-        return round(float(val), 2)
-    if col in ("Shareholder Yield (TTM)", "Gross Profitability", "ROIC"):
-        return f"{float(val):.2%}"
+    if col == "F-Score":
+        return round(float(val), 1)
     if col == "P/E (TTM)":
         fv = float(val)
         if np.isinf(fv) or np.isnan(fv):
@@ -94,7 +138,6 @@ def _fmt_val(col: str, val):
 def _write_styled_sheet(ws, df: pd.DataFrame, title: str, subtitle: str,
                         column_groups: list, book_type: str = None):
     """Write a fully styled holdings table into an openpyxl worksheet."""
-    # Build column order from groups, keeping only columns present in df
     all_cols = [c for _, _, cols in column_groups for c in cols if c in df.columns]
     df = df[all_cols].reset_index(drop=True)
     n_cols = len(all_cols)
@@ -201,9 +244,17 @@ def _latest_component_snapshot(signal_df: pd.DataFrame) -> pd.DataFrame:
     df.sort_values(["PERMNO", "signal_month", "datadate"], inplace=True)
     keep_cols = [
         "PERMNO", "signal_month", "datadate", "tic", "conm",
+        # Long signal raw + z
         "sh_yield", "gross_prof", "roic",
-        "sh_yield_z", "gross_prof_z", "roic_z", "pe_ratio",
+        "sh_yield_z", "gross_prof_z", "roic_z",
+        "pe_ratio",
+        # Short signal raw (ev_ebit not exported as raw, only z)
+        "fcf_yield", "accruals", "nef", "f_score", "leverage",
+        # Short signal z
+        "fcf_yield_z", "accruals_z", "ev_ebit_z", "nef_z", "f_score_z", "leverage_z",
     ]
+    # Only keep columns that actually exist in the cache
+    keep_cols = [c for c in keep_cols if c in df.columns]
     return df[keep_cols].drop_duplicates(subset=["PERMNO", "signal_month"], keep="last")
 
 
@@ -246,6 +297,15 @@ def main():
         bt.LONG_WEIGHT / bt.N_LONG,
         (bt.LONG_WEIGHT - 1.0) / bt.N_SHORT,
     )
+
+    # Composite Z: use the correct signal per book
+    snapshot["Composite Z"] = np.where(
+        snapshot["Book"] == "Long",
+        snapshot[bt.SIGNAL_COL],
+        snapshot[bt.SHORT_SIGNAL_COL],
+    )
+
+    # Rank each book by its own signal
     snapshot["Rank"] = np.nan
     long_mask  = snapshot["Book"] == "Long"
     short_mask = snapshot["Book"] == "Short"
@@ -253,6 +313,7 @@ def main():
     snapshot.loc[short_mask, "Rank"] = snapshot.loc[short_mask, bt.SHORT_SIGNAL_COL].rank(ascending=False, method="first")
     snapshot["Rank"] = snapshot["Rank"].astype(int)
 
+    # Merge in factor components from the signal cache
     components = _latest_component_snapshot(signal_raw)
     snapshot = snapshot.merge(
         components,
@@ -260,39 +321,65 @@ def main():
         right_on=["PERMNO", "signal_month"],
         how="left",
     )
-    snapshot["Sector"]            = snapshot["sich"].map(bt._SIC_MAP).fillna("Industrials")
-    snapshot["Rebalance Month"]   = snapshot["month"].dt.to_period("M").dt.to_timestamp()
-    snapshot["Signal Month"]      = snapshot["signal_source_month"].dt.to_period("M").dt.to_timestamp()
+
+    snapshot["Sector"]             = snapshot["sich"].map(bt._SIC_MAP).fillna("Industrials")
+    snapshot["Rebalance Month"]    = snapshot["month"].dt.to_period("M").dt.to_timestamp()
+    snapshot["Signal Month"]       = snapshot["signal_source_month"].dt.to_period("M").dt.to_timestamp()
     snapshot["Financials Through"] = snapshot["datadate"].dt.to_period("M").dt.to_timestamp()
+
+    # Rename all factor columns to display names
     snapshot.rename(columns={
-        "tic":           "Ticker",
-        "conm":          "Company",
-        bt.SIGNAL_COL:   "Composite Z",
-        "sh_yield":      "Shareholder Yield (TTM)",
-        "gross_prof":    "Gross Profitability",
-        "roic":          "ROIC",
-        "sh_yield_z":    "Shareholder Yield Z",
-        "gross_prof_z":  "Gross Profitability Z",
-        "roic_z":        "ROIC Z",
-        "pe_ratio":      "P/E (TTM)",
+        "tic":          "Ticker",
+        "conm":         "Company",
+        # Long signal raw + z
+        "sh_yield":     "Shareholder Yield (TTM)",
+        "gross_prof":   "Gross Profitability",
+        "roic":         "ROIC",
+        "sh_yield_z":   "Shareholder Yield Z",
+        "gross_prof_z": "Gross Profitability Z",
+        "roic_z":       "ROIC Z",
+        "pe_ratio":     "P/E (TTM)",
+        # Short signal raw
+        "fcf_yield":    "FCF Yield (TTM)",
+        "accruals":     "Accruals",
+        "nef":          "Net Ext. Fin.",
+        "f_score":      "F-Score",
+        "leverage":     "Leverage",
+        # Short signal z
+        "fcf_yield_z":  "FCF Yield Z",
+        "accruals_z":   "Accruals Z",
+        "ev_ebit_z":    "EV/EBIT Z",
+        "nef_z":        "NEF Z",
+        "f_score_z":    "F-Score Z",
+        "leverage_z":   "Leverage Z",
     }, inplace=True)
+
+    # For All Holdings sheet: blank out cross-book factor columns so each row
+    # only shows factors relevant to its own signal
+    for col in _LONG_FACTOR_Z_COLS + _LONG_RAW_COLS:
+        if col in snapshot.columns:
+            snapshot.loc[snapshot["Book"] == "Short", col] = np.nan
+    for col in _SHORT_FACTOR_Z_COLS + _SHORT_RAW_COLS:
+        if col in snapshot.columns:
+            snapshot.loc[snapshot["Book"] == "Long", col] = np.nan
 
     snapshot = snapshot.sort_values(["Book", "Rank"]).reset_index(drop=True)
 
-    rebal_str = latest_month.strftime("%B %Y")
+    # Split books (before blanking — each has its own full data since we already masked above)
+    long_df  = snapshot[snapshot["Book"] == "Long"].copy()
+    short_df = snapshot[snapshot["Book"] == "Short"].copy()
+
+    rebal_str   = latest_month.strftime("%B %Y")
     title_all   = f"Market Neutral Long-Short Equity — Holdings Snapshot  ({rebal_str})"
     title_long  = f"Market Neutral Long-Short Equity — Long Book  ({rebal_str})"
     title_short = f"Market Neutral Long-Short Equity — Short Book  ({rebal_str})"
     subtitle = (
         "Long signal: Shareholder Yield + Gross Profitability + ROIC  |  "
-        "Short signal: Net Ext. Financing + Leverage + F-Score + Gross Profitability  |  "
-        f"{bt.LONG_WEIGHT:.0%} long top-{bt.N_LONG} / w_short = {bt.LONG_WEIGHT:.0%} × β_long/β_short "
+        "Short signal: FCF Yield (neg, 1.5×) + Accruals + EV/EBIT + NEF + F-Score (neg) + Leverage (0.5×) + Gross Prof (neg, 0.5×)  |  "
+        f"{bt.LONG_WEIGHT:.0%} long top-{bt.N_LONG} / w_short solved for {bt.TARGET_BETA:.2f} net beta "
         f"(Vasicek-adj, {bt.BETA_WINDOW}m trailing)  |  "
-        f"Monthly rebalancing, ±{bt.SECTOR_TOL:.0%} sector neutrality, beta-neutral"
+        f"Monthly rebalancing, ±{bt.SECTOR_TOL:.0%} sector neutrality"
     )
-
-    long_df  = snapshot[snapshot["Book"] == "Long"].copy()
-    short_df = snapshot[snapshot["Book"] == "Short"].copy()
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     wb = openpyxl.Workbook()
@@ -302,10 +389,10 @@ def main():
     _write_styled_sheet(ws_all, snapshot, title_all, subtitle, _ALL_GROUPS)
 
     ws_long = wb.create_sheet("Long Book")
-    _write_styled_sheet(ws_long, long_df, title_long, subtitle, _SINGLE_GROUPS, book_type="Long")
+    _write_styled_sheet(ws_long, long_df, title_long, subtitle, _LONG_GROUPS, book_type="Long")
 
     ws_short = wb.create_sheet("Short Book")
-    _write_styled_sheet(ws_short, short_df, title_short, subtitle, _SINGLE_GROUPS, book_type="Short")
+    _write_styled_sheet(ws_short, short_df, title_short, subtitle, _SHORT_GROUPS, book_type="Short")
 
     wb.save(OUTPUT_FILE)
     print(f"Saved holdings snapshot to {OUTPUT_FILE}")
