@@ -395,6 +395,89 @@ def plot_annual_returns(results, ew_only=False):
     _save(fig, "annual_returns.png", EW_DIR if ew_only else None)
 
 
+def plot_annual_returns_with_excess(results, ew_only=False):
+    """Two-panel chart: annual returns (top) and excess return vs S&P 500 (bottom)."""
+    df = results[["ew_mkt_neutral", "vw_mkt_neutral", "sp500"]].copy()
+    df.index = pd.to_datetime(df.index)
+
+    # Drop startup/partial years (same logic as plot_annual_excess_returns)
+    valid_years = (
+        df["ew_mkt_neutral"]
+        .groupby(df.index.year)
+        .apply(lambda x: x.notna().sum())
+    )
+    valid_years = valid_years[valid_years >= 10].index
+
+    annual = (
+        df.groupby(df.index.year)
+        .apply(lambda x: (1 + x).prod(min_count=1) - 1)
+    )
+    annual = annual.loc[annual.index.isin(valid_years)].dropna(how="all")
+    annual["ew_excess"] = annual["ew_mkt_neutral"] - annual["sp500"]
+    annual["vw_excess"] = annual["vw_mkt_neutral"] - annual["sp500"]
+
+    x = np.arange(len(annual))
+    fig, (ax_top, ax_bot) = plt.subplots(
+        2, 1, figsize=(16, 10), sharex=True,
+        gridspec_kw={"height_ratios": [2, 1], "hspace": 0.08},
+    )
+
+    # ── top: annual returns ───────────────────────────────────────────────────
+    if ew_only:
+        width = 0.35
+        ax_top.bar(x - width / 2, annual["ew_mkt_neutral"], width,
+                   label="Market Neutral (EW)", color=C_STRAT, alpha=0.85)
+        ax_top.bar(x + width / 2, annual["sp500"], width,
+                   label="S&P 500", color=C_SP500, alpha=0.85)
+    else:
+        width = 0.28
+        ax_top.bar(x - width, annual["ew_mkt_neutral"], width,
+                   label="Market Neutral (EW)", color=C_STRAT, alpha=0.85)
+        ax_top.bar(x,          annual["vw_mkt_neutral"], width,
+                   label="Market Neutral (VW)", color=C_VW_STRAT, alpha=0.75)
+        ax_top.bar(x + width,  annual["sp500"], width,
+                   label="S&P 500", color=C_SP500, alpha=0.85)
+
+    ax_top.axhline(0, color=NAVY, linewidth=0.8)
+    _pct_fmt(ax_top)
+    ax_top.set_ylabel("Annual Return")
+    ax_top.set_title(f"{STRATEGY} — Annual Returns & Excess vs S&P 500", fontsize=12)
+    ax_top.legend(fontsize=9)
+    ax_top.grid(True, alpha=0.3, axis="y")
+
+    # ── bottom: excess return ─────────────────────────────────────────────────
+    if ew_only:
+        ew_colors = [C_STRAT if v >= 0 else C_SHORT for v in annual["ew_excess"]]
+        ax_bot.bar(x, annual["ew_excess"], 0.55, color=ew_colors, alpha=0.85)
+        legend_handles = [plt.Rectangle((0, 0), 1, 1, color=C_STRAT, alpha=0.85)]
+        legend_labels  = ["EW Excess (Strategy − S&P 500)"]
+    else:
+        ew_colors = [C_STRAT    if v >= 0 else C_SHORT   for v in annual["ew_excess"]]
+        vw_colors = [C_VW_STRAT if v >= 0 else "#E06060" for v in annual["vw_excess"]]
+        ax_bot.bar(x - 0.2, annual["ew_excess"], 0.38, color=ew_colors, alpha=0.85)
+        ax_bot.bar(x + 0.2, annual["vw_excess"], 0.38, color=vw_colors, alpha=0.75)
+        legend_handles = [
+            plt.Rectangle((0, 0), 1, 1, color=C_STRAT,    alpha=0.85),
+            plt.Rectangle((0, 0), 1, 1, color=C_VW_STRAT, alpha=0.75),
+        ]
+        legend_labels = [
+            "EW Excess (Strategy − S&P 500)",
+            "VW Excess (Strategy − S&P 500)",
+        ]
+
+    ax_bot.axhline(0, color=NAVY, linewidth=0.8)
+    _pct_fmt(ax_bot)
+    ax_bot.set_ylabel("Excess Return")
+    ax_bot.set_xticks(x)
+    ax_bot.set_xticklabels(annual.index.astype(str), rotation=45, ha="right")
+    ax_bot.legend(legend_handles, legend_labels, fontsize=9)
+    ax_bot.grid(True, alpha=0.3, axis="y")
+
+    _apply_theme(fig, [ax_top, ax_bot])
+    fig.tight_layout()
+    _save(fig, "annual_returns_vs_sp500.png", EW_DIR if ew_only else None)
+
+
 def plot_weight_over_time(results, ew_only=False):
     fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
     ax1, ax2 = axes
@@ -824,6 +907,7 @@ def main():
     plot_rolling_beta(results, ff)
     plot_rolling_5yr_return(results)
     plot_annual_excess_returns(results)
+    plot_annual_returns_with_excess(results)
 
     print("Generating EW-only plots for presentation slides ...")
     plot_cumulative_returns(results, ew_only=True)
@@ -837,6 +921,7 @@ def main():
     plot_rolling_beta(results, ff, ew_only=True)
     plot_rolling_5yr_return(results, ew_only=True)
     plot_annual_excess_returns(results, ew_only=True)
+    plot_annual_returns_with_excess(results, ew_only=True)
 
     merged_path = CACHE_DIR / "merged.parquet"
     if merged_path.exists():
