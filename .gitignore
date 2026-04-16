@@ -1,6 +1,6 @@
 # Claude Code instructions (local only)
 CLAUDE.md
-.claude
+.claude/
 
 # Data files (large source data — store separately)
 Data/
