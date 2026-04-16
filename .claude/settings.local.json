@@ -20,7 +20,9 @@
       "Bash(cmd:*)",
       "Bash(python run_all.py)",
       "Bash(python Code/make_plots.py)",
-      "Bash(python -c \"import Code.backtest as b; print\\([x for x in dir\\(b\\) if not x.startswith\\('_'\\)]\\)\")"
+      "Bash(python -c \"import Code.backtest as b; print\\([x for x in dir\\(b\\) if not x.startswith\\('_'\\)]\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(cp \"Data/factor_returns.xlsx\" \"/tmp/factor_returns_tmp.xlsx\")"
     ]
   }
 }
